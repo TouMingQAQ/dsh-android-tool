@@ -10,13 +10,47 @@
 
 ## 安装
 
-把本目录加入 DSH profile：
+### 从 GitHub 安装
+
+在 DSH 的「设置 → 插件 → 安装」里填仓库地址即可（给到仓库，不用精确到子目录）：
+
+```
+https://github.com/TouMingQAQ/dsh-android-tool
+```
+
+或在 profile 目录执行：
+
+```bash
+dsh plugin install github:TouMingQAQ/dsh-android-tool
+```
+
+装完 `dsh.profile.bundles` 会出现 `dsh-android-tool`，右侧多出「安卓设备」面板，AI 侧多出四个 `android_*` 工具。
+
+### 卡在 codeload.github.com 超时怎么办
+
+本包随带精简 scrcpy 二进制（`adb.exe` 等约 8.8MB），GitHub tarball 约 **4.6MB**；`codeload.github.com` 在部分网络下很慢，pnpm 默认 `fetch-timeout` 只有 60 秒，下不完就报：
+
+```
+GET https://codeload.github.com/.../tar.gz/<sha> ... The operation was aborted due to timeout
+```
+
+这是下载超时，不是包有问题（插件管理器不会为 git spec 换源重试，因为换源救不了拉取主机本身）。在 profile 目录的 `.npmrc` 里放宽后再装：
+
+```ini
+fetch-timeout=600000
+fetch-retries=5
+fetch-retry-maxtimeout=120000
+```
+
+有代理就一并配上 `https-proxy` / `proxy`。装完可以删掉这几行。
+
+### 本地链接安装（开发用）
 
 1. 在本目录执行 `npm install`（安装 `@yume-chan/scrcpy` 依赖）；
 2. 在 profile 的 `node_modules` 建 junction 指向本目录；
-3. `package.json` 的 `dependencies` 写 `"dsh-android-tool": "link:C:/WorkSpace/Work/DSH/dsh-android-tool"`；
-4. `package.json` 的 `dsh.profile.bundles` 加入 `"dsh-android-tool"`；
-5. 重启 DSH（首次加载后可通过 profile 的插件热重载刷新）。
+3. profile 的 `package.json` `dependencies` 写 `"dsh-android-tool": "link:<本目录绝对路径>"`；
+4. `dsh.profile.bundles` 加入 `"dsh-android-tool"`；
+5. 重启 DSH（之后可用插件热重载刷新）。
 
 ## 第三方库
 
