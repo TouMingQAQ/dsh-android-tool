@@ -1,0 +1,28 @@
+# dsh-android-tool 的挂载层。
+#
+# 只插入 host 行：AndroidService + 四个 AI 工具 + /x-android-tool 的 HTTP/WS 接口。
+# 浏览器半边（侧边栏「安卓设备」与设置里的「安卓调试」）随 dsh.client 一起加载，
+# 不在这里声明。
+#
+# 配置项一律给默认值：
+#   - adbPath / scrcpyPath 留空 = 自动使用本插件目录下 scrcpy-win64-v5.0.1 里的
+#     adb.exe / scrcpy.exe；
+#   - wirelessHost 留空 = 还没配置无线调试，插件正常运行，只是连不上设备；
+# 用户在「设置 → 安卓调试」里改，写入后立即生效（全部字段都是 volatile）。
+- insert:
+    - id: dsh-android-tool
+      name: dsh-android-tool
+      config:
+        adbPath: ''
+        scrcpyPath: ''
+        wirelessHost: ''
+        wirelessPort: 5555
+        pairingPort: 0
+        autoConnect: false
+        videoMaxSize: 720
+        videoBitRate: 2500000
+        videoFps: 30
+        previewFps: 3
+        logcatMaxLines: 5000
+        adbTimeoutMs: 15000
+        scrcpyExtraArgs: ''
