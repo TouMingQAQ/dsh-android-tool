@@ -44,9 +44,9 @@ test('readBool / clampInt', () => {
 
 test('resolveExecutablePaths 默认用随包目录', () => {
   const value = resolveExecutablePaths({ pluginRoot: 'C:/plugin', platform: 'win32', join })
-  assert.equal(value.adbPath, join('C:/plugin', 'scrcpy-win64-v5.0.1', 'adb.exe'))
-  assert.equal(value.scrcpyPath, join('C:/plugin', 'scrcpy-win64-v5.0.1', 'scrcpy.exe'))
-  assert.equal(value.serverPath, join('C:/plugin', 'scrcpy-win64-v5.0.1', 'scrcpy-server'))
+  assert.equal(value.adbPath, join('C:/plugin', 'scrcpy', 'adb.exe'))
+  assert.equal(value.scrcpyPath, join('C:/plugin', 'scrcpy', 'scrcpy.exe'))
+  assert.equal(value.serverPath, join('C:/plugin', 'scrcpy', 'scrcpy-server'))
 })
 
 test('resolveExecutablePaths 显式路径优先', () => {

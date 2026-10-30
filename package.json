@@ -1,6 +1,6 @@
 {
   "name": "dsh-android-tool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "把 Android 设备接进 DSH：设置页配置无线调试与 adb，右侧四 Tab 看画面 / Logcat / 性能 / 指令，并给 AI android_view / android_state / android_control / android_adb 四个工具",
   "private": false,
   "type": "module",
@@ -19,7 +19,7 @@
     "icon.svg",
     "README.md",
     "LICENSE",
-    "scrcpy-win64-v5.0.1"
+    "scrcpy"
   ],
   "keywords": [
     "dsh",
@@ -49,8 +49,7 @@
     }
   },
   "engines": {
-    "node": ">=20",
-    "dsh": ">=0.2.0"
+    "node": ">=20"
   },
   "scripts": {
     "test": "node --test \"test/*.test.js\""

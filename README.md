@@ -6,7 +6,7 @@
 - **右侧 Sidebar → 安卓设备**：顶部四个 Tab —— 界面 / Logcat / 性能 / 指令。
 - **给 AI 的四个工具**：`android_view`、`android_state`、`android_control`、`android_adb`。
 
-插件随包 `scrcpy-win64-v5.0.1` 的精简版：只保留 `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`scrcpy-server`（约 9MB），不依赖本机另外安装 adb；独立 scrcpy 窗口需要你在设置里另外指定本机 `scrcpy.exe`。
+插件随包一份 `scrcpy/` 目录的精简版：只保留 `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`scrcpy-server`（约 9MB），不依赖本机另外安装 adb；独立 scrcpy 窗口需要你在设置里另外指定本机 `scrcpy.exe`。
 
 ## 安装
 
@@ -105,7 +105,7 @@ fetch-retry-maxtimeout=120000
 
 | key | 默认 | 说明 |
 |---|---|---|
-| `adbPath` | 随包 | 留空 = `scrcpy-win64-v5.0.1/adb.exe` |
+| `adbPath` | 随包 | 留空 = `scrcpy/adb.exe` |
 | `scrcpyPath` | 空 | 精简包不含；需要独立 scrcpy 窗口时填本机 `scrcpy.exe` 路径 |
 | `wirelessHost` | 空 | 无线调试设备 IP |
 | `wirelessPort` | 5555 | adb connect 端口 |

@@ -5,7 +5,7 @@
 # 不在这里声明。
 #
 # 配置项一律给默认值：
-#   - adbPath / scrcpyPath 留空 = 自动使用本插件目录下 scrcpy-win64-v5.0.1 里的
+#   - adbPath / scrcpyPath 留空 = 自动使用本插件目录下 scrcpy 里的
 #     adb.exe / scrcpy.exe；
 #   - wirelessHost 留空 = 还没配置无线调试，插件正常运行，只是连不上设备；
 # 用户在「设置 → 安卓调试」里改，写入后立即生效（全部字段都是 volatile）。
