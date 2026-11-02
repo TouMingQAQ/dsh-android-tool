@@ -17,10 +17,16 @@ test('注册了右侧页面与设置 section', () => {
   assert.match(source, /安卓设备/u)
 })
 
-test('四 Tab 与 WebCodecs 都在', () => {
-  for (const label of ['界面', 'Logcat', '性能', '指令']) assert.match(source, new RegExp(label, 'u'))
+test('五 Tab 与 WebCodecs 都在', () => {
+  for (const label of ['界面', 'Logcat', '性能', '指令', 'AAB→APK']) assert.match(source, new RegExp(label, 'u'))
   assert.match(source, /VideoDecoder/u)
   assert.match(source, /video\.ws/u)
+})
+
+test('AAB→APK 客户端接了配置/检测/转换/任务路由', () => {
+  for (const route of ['aab2apk/config', 'aab2apk/detect', 'aab2apk/convert', 'aab2apk/job', 'aab2apk/cancel', 'aab2apk/browse']) {
+    assert.match(source, new RegExp(route.replace('/', '\\/'), 'u'))
+  }
 })
 
 test('Unity 颜色通过 segments 渲染，不用 innerHTML', () => {

@@ -14,13 +14,16 @@ function fakeService() {
     deviceState: record('deviceState'),
     control: record('control'),
     adbCommand: record('adbCommand'),
+    aab2apk: {
+      convert: record('aab2apk.convert'),
+    },
   }
 }
 
-test('buildTools 返回四个工具且名字唯一', () => {
+test('buildTools 返回五个工具且名字唯一', () => {
   const tools = buildTools({ service: fakeService() })
   const names = tools.map((tool) => tool.name)
-  assert.deepEqual(names, ['android_view', 'android_state', 'android_control', 'android_adb'])
+  assert.deepEqual(names, ['android_view', 'android_state', 'android_control', 'android_adb', 'android_aab2apk'])
   assert.equal(new Set(names).size, names.length)
   for (const tool of tools) {
     assert.equal(typeof tool.execute, 'function')
@@ -52,6 +55,18 @@ test('android_adb 传 mode / timeout', async () => {
   const tool = buildTools({ service }).find((item) => item.name === 'android_adb')
   await tool.execute({ command: 'getprop x', mode: 'shell', timeoutMs: 5000 })
   assert.deepEqual(service.calls[0].input, { command: 'getprop x', mode: 'shell', serial: undefined, timeoutMs: 5000 })
+})
+
+test('android_aab2apk 折叠成 keystore/tools 覆盖并去掉 undefined', async () => {
+  const service = fakeService()
+  const tool = buildTools({ service }).find((item) => item.name === 'android_aab2apk')
+  await tool.execute({ aabPath: 'C:/x/app.aab', keystorePath: 'k.jks', keystorePassword: 'p', keyAlias: 'a', align: false })
+  const input = service.calls[0].input
+  assert.equal(input.aabPath, 'C:/x/app.aab')
+  assert.equal(input.align, false)
+  assert.deepEqual(input.keystore, { keystorePath: 'k.jks', keystorePassword: 'p', keyAlias: 'a' })
+  assert.equal(input.tools, undefined)
+  assert.equal(Object.hasOwn(input, 'outputDir'), false)
 })
 
 test('图片 render 会附上 image block', () => {

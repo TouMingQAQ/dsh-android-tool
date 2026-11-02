@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { registerWebRoutes, WEB_ROUTES } from '../lib/webapi.js'
+import { Aab2ApkService } from '../lib/aab2apk.js'
 
 function fakeResponse() {
   const headers = {}
@@ -110,4 +114,34 @@ test('未知路由 404；非 GET/POST 方法 405', async () => {
   const put = fakeResponse()
   await server.calls.http[0].handler(fakeRequest('PUT', WEB_ROUTES.command), put)
   assert.equal(put.statusCode, 405)
+})
+
+test('aab2apk config / 保存 / 浏览 / 任务路由', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'aab2apk-web-'))
+  try {
+    const aab2apk = new Aab2ApkService({ getDataRoot: () => root, pluginRoot: process.cwd() })
+    const server = fakeServer()
+    registerWebRoutes(server, { service: { aab2apk } })
+    const handler = server.calls.http[0].handler
+
+    const described = fakeResponse()
+    await handler(fakeRequest('GET', WEB_ROUTES.aab2apkConfig), described)
+    const describedBody = JSON.parse(described.body)
+    assert.equal(describedBody.ok, true)
+    assert.equal(describedBody.config.outputDir, 'output')
+
+    const saved = fakeResponse()
+    await handler(fakeRequest('POST', WEB_ROUTES.aab2apkConfig, [JSON.stringify({ config: { aabPath: 'x.aab' } })]), saved)
+    assert.equal(JSON.parse(saved.body).ok, true)
+
+    const browsed = fakeResponse()
+    await handler(fakeRequest('GET', `${WEB_ROUTES.aab2apkBrowse}?path=${encodeURIComponent(root)}`), browsed)
+    assert.equal(JSON.parse(browsed.body).ok, true)
+
+    const job = fakeResponse()
+    await handler(fakeRequest('GET', `${WEB_ROUTES.aab2apkJob}?id=nope`), job)
+    assert.equal(JSON.parse(job.body).ok, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

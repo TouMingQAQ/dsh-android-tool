@@ -3,10 +3,13 @@
 把 Android 设备接进 DSH 工作台：
 
 - **设置 → 安卓调试**：配置 adb / scrcpy 路径、无线调试（配对 / 连接 / 断开）、当前调试设备与视频/日志偏好。
-- **右侧 Sidebar → 安卓设备**：顶部四个 Tab —— 界面 / Logcat / 性能 / 指令。
-- **给 AI 的四个工具**：`android_view`、`android_state`、`android_control`、`android_adb`。
+- **右侧 Sidebar → 安卓设备**：顶部五个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK。
+- **AAB → APK**：把 `.aab` 转成已签名、可直接安装的 `.apk`（bundletool → zipalign → apksigner），复刻 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的完整流程。
+- **给 AI 的五个工具**：`android_view`、`android_state`、`android_control`、`android_adb`、`android_aab2apk`。
 
 插件随包一份 `scrcpy/` 目录的精简版：只保留 `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`scrcpy-server`（约 9MB），不依赖本机另外安装 adb；独立 scrcpy 窗口需要你在设置里另外指定本机 `scrcpy.exe`。
+
+另外随包 `tools/bundletool-all.jar`（1.18.3，约 32MB），AAB→APK 开箱就能用；Java 与 Android SDK Build-Tools（apksigner / zipalign）仍需本机安装。
 
 ## 安装
 
@@ -92,6 +95,22 @@ fetch-retry-maxtimeout=120000
 - `shell` 模式 = `adb -s <serial> shell <command>`；`adb` 模式把输入当作 adb argv。
 - 有超时保护，输出显示 stdout / stderr / 退出码 / 耗时。
 
+### AAB → APK
+
+把安卓 App Bundle `.aab` 转成已签名、可直接安装的 `.apk`，流程与 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 一致：
+
+```
+.aab → bundletool build-apks --mode=universal → 解包 universal.apk → zipalign → apksigner sign → apksigner verify → .apk
+```
+
+- **输入与输出**：AAB 文件、输出文件夹、输出名、缓存目录；所有路径都能点「浏览」选择。
+- **密钥库与签名**：`.jks/.keystore/.p12/.pfx/.bks`、密码、别名、密钥密码、密钥库类型、v4 签名。密码在日志里统一显示为 `pass:***`。
+- **构建工具**：bundletool jar、Java、Android SDK、apksigner、zipalign；留空自动探测（`JAVA_HOME`、`ANDROID_HOME`、`%LOCALAPPDATA%\Android\Sdk`、`build-tools/<版本>`、PATH 都会查），每一项也能手动覆盖。
+- **自动识别**：`bundle` 没有 `BundleConfig.pb` 时自动从 AAB 抽出 `AndroidManifest.xml` 传给 `--aab-manifest`。
+- **配置持久化**：存在 `.dsh-android-tool/aab2apk.config.json`，与 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的字段一致；相对路径以插件目录为基准，换机器仍可用。
+- **取消 / 超时**：每一步都支持取消；bundletool 30 分钟、签名/对齐 10 分钟、校验 5 分钟超时。
+- 需要 **Java** 和 **Android SDK Build-Tools**（apksigner / zipalign）；`bundletool-all.jar` 已随包放在 `tools/`，也可以用界面覆盖成别的版本。缺哪个会在检测结果里直接写出来。
+
 ## AI 工具
 
 | 工具 | 作用 |
@@ -100,6 +119,7 @@ fetch-retry-maxtimeout=120000
 | `android_state` | 查看设备参数：型号、Android 版本、电量、WiFi、内存、存储、屏幕、当前应用。 |
 | `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app，默认操作后回一张截图。 |
 | `android_adb` | 最后兜底：用配置的 adb 执行任意命令，返回 stdout/stderr/退出码。 |
+| `android_aab2apk` | 把 `.aab` 转成已签名 `.apk`，返回输出路径、大小、耗时、包名/版本与工具输出尾巴。 |
 
 ## 配置项
 
@@ -121,6 +141,8 @@ fetch-retry-maxtimeout=120000
 
 ## 限制
 
+- **DSH 版本**：`package.json` 声明 `engines.dsh: >=0.2.1-rc.3`，当前 0.2.1-rc.5 已验证；更老的 DSH 会被插件管理器判为不兼容而拒绝加载。
+- **AAB → APK 依赖外部工具**：需要 Java（JDK 11+）和 Android SDK Build-Tools；`bundletool-all.jar` 已随包（`tools/`），缺 Java/SDK 时会在「检测工具」里提示。
 - **GPU**：Android 没有统一 GPU 占用接口，不同 SoC 的 sysfs 不一样；读不到时明确显示不可用。
 - **中文输入**：实时流下走 scrcpy control，支持 Unicode；只有回退到 `adb shell input text` 时才只支持 ASCII。
 - **首次启动无设备**：插件正常加载，界面给出空状态；真机联调需要先连接设备或配置无线调试。

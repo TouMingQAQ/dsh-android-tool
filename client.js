@@ -168,6 +168,19 @@ window.__ModuleLoader__.load({
       table: { width: '100%', borderCollapse: 'collapse', fontSize: 12.5 },
       th: { textAlign: 'left', padding: '5px 8px', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', opacity: 0.65, fontWeight: 500 },
       td: { padding: '5px 8px', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.14))' },
+      aabWrap: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
+      aabScroll: { flex: 1, minHeight: 0, overflow: 'auto', padding: '10px 11px', display: 'flex', flexDirection: 'column', gap: 12 },
+      aabGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 },
+      aabSection: { border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22))', borderRadius: 10, padding: '10px 12px', background: 'var(--dsw-alias-fill-l2, rgba(127,127,127,.04))' },
+      aabTitle: { fontSize: 12.5, opacity: 0.72, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 },
+      aabCheck: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, lineHeight: '22px' },
+      aabPathRow: { display: 'flex', gap: 6, alignItems: 'center' },
+      aabLog: { flex: '0 0 auto', height: 220, overflow: 'auto', margin: 0, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))', background: 'rgba(0,0,0,.14)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
+      aabOverlay: { position: 'absolute', inset: 0, zIndex: 30, background: 'rgba(0,0,0,.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 },
+      aabDialog: { width: 'min(560px, 100%)', maxHeight: '86%', display: 'flex', flexDirection: 'column', borderRadius: 12, border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.4))', background: 'var(--dsw-alias-bg-base, #1b1b1b)', color: 'inherit', overflow: 'hidden' },
+      aabDialogHead: { display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))' },
+      aabDialogList: { flex: 1, minHeight: 0, overflow: 'auto', padding: 6 },
+      aabDialogRow: { display: 'flex', gap: 8, alignItems: 'center', width: '100%', textAlign: 'left', padding: '5px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', font: 'inherit', fontSize: 12.5 },
     }
 
     async function requestJson(url, body) {
@@ -569,12 +582,14 @@ window.__ModuleLoader__.load({
         { id: 'logcat', label: 'Logcat' },
         { id: 'perf', label: '性能' },
         { id: 'command', label: '指令' },
+        { id: 'aab2apk', label: 'AAB→APK' },
       ]
 
       let content
       if (tab === 'screen') content = h(ScreenTab, { state, refresh })
       else if (tab === 'logcat') content = h(LogcatTab, { state, refresh })
       else if (tab === 'perf') content = h(PerfTab, { state, refresh })
+      else if (tab === 'aab2apk') content = h(Aab2ApkTab)
       else content = h(CommandTab, { state, refresh })
 
       const devices = Array.isArray(state?.devices) ? state.devices : []
@@ -1393,6 +1408,376 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── Tab5 AAB → APK ─────────────────────────────────────────────────────
+    function getByPath(object, path) {
+      let current = object
+      for (const part of path.split('.')) {
+        if (current === undefined || current === null) return undefined
+        current = current[part]
+      }
+      return current
+    }
+
+    function setByPath(object, path, value) {
+      const parts = path.split('.')
+      const root = { ...object }
+      let cursor = root
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const key = parts[index]
+        cursor[key] = { ...(cursor[key] ?? {}) }
+        cursor = cursor[key]
+      }
+      cursor[parts[parts.length - 1]] = value
+      return root
+    }
+
+    function formatAabEvent(event) {
+      if (event.kind === 'step-started') return `==> ${event.label ?? event.step}`
+      if (event.kind === 'step-finished') return `    完成  ${event.step}${event.detail ? ` -> ${event.detail}` : ''}`
+      if (event.kind === 'step-skipped') return `    已跳过  ${event.step}（${event.reason ?? ''}）`
+      if (event.kind === 'warn') return `  警告  ${event.message ?? ''}`
+      if (event.kind === 'error') return `  错误  ${event.message ?? ''}`
+      if (event.kind === 'output') return `      ${event.line ?? ''}`
+      return `    ${event.message ?? ''}`
+    }
+
+    function Aab2ApkTab() {
+      const [config, setConfig] = React.useState(undefined)
+      const [detected, setDetected] = React.useState(undefined)
+      const [status, setStatus] = React.useState('')
+      const [running, setRunning] = React.useState(false)
+      const [events, setEvents] = React.useState([])
+      const [result, setResult] = React.useState(undefined)
+      const [picker, setPicker] = React.useState(undefined)
+      const [jobId, setJobId] = React.useState('')
+      const cursorRef = React.useRef(0)
+      const pollRef = React.useRef(undefined)
+      const logRef = React.useRef(null)
+
+      React.useEffect(() => {
+        let stopped = false
+        void (async () => {
+          const response = await requestJson(`${API}/aab2apk/config`)
+          if (!stopped && response?.ok === true) {
+            setConfig(response.config)
+            setDetected(response.detected)
+          }
+        })()
+        return () => {
+          stopped = true
+          if (pollRef.current !== undefined) window.clearTimeout(pollRef.current)
+        }
+      }, [])
+
+      React.useEffect(() => {
+        const node = logRef.current
+        if (node !== null) node.scrollTop = node.scrollHeight
+      }, [events])
+
+      const setField = (path, value) => setConfig((previous) => setByPath(previous ?? {}, path, value))
+      const valueOf = (path) => getByPath(config ?? {}, path)
+
+      const stopPolling = () => {
+        if (pollRef.current !== undefined) {
+          window.clearTimeout(pollRef.current)
+          pollRef.current = undefined
+        }
+      }
+
+      const poll = async (id) => {
+        const response = await requestJson(`${API}/aab2apk/job?id=${encodeURIComponent(id)}&cursor=${cursorRef.current}`)
+        if (response?.ok !== true) {
+          setRunning(false)
+          setStatus(`读取任务失败：${response?.error ?? '未知错误'}`)
+          return
+        }
+        cursorRef.current = response.cursor ?? 0
+        if (Array.isArray(response.events) && response.events.length > 0) {
+          setEvents((previous) => [...previous, ...response.events])
+        }
+        if (response.status === 'running') {
+          pollRef.current = window.setTimeout(() => void poll(id), 600)
+          return
+        }
+        setRunning(false)
+        setResult(response.result ?? undefined)
+        setStatus(response.status === 'done' ? '转换完成' : response.status === 'cancelled' ? '已取消' : `转换失败：${response.error ?? ''}`)
+      }
+
+      const save = async () => {
+        if (config === undefined) return
+        const response = await requestJson(`${API}/aab2apk/config`, { config })
+        if (response?.ok === true) {
+          setConfig(response.config)
+          setStatus('配置已保存')
+        } else {
+          setStatus(`保存失败：${response?.error ?? '未知错误'}`)
+        }
+      }
+
+      const detect = async () => {
+        setStatus('正在检测工具…')
+        const response = await requestJson(`${API}/aab2apk/detect`)
+        if (response?.ok === true || response?.notes !== undefined) {
+          setDetected(response)
+          setStatus(response.ok === true ? '工具就绪' : `缺少工具：${response.error ?? ''}`)
+        } else {
+          setStatus(`检测失败：${response?.error ?? '未知错误'}`)
+        }
+      }
+
+      const start = async () => {
+        if (config === undefined || running) return
+        const saved = await requestJson(`${API}/aab2apk/config`, { config })
+        if (saved?.ok === false) {
+          setStatus(`保存失败：${saved.error}`)
+          return
+        }
+        setEvents([])
+        setResult(undefined)
+        cursorRef.current = 0
+        setRunning(true)
+        setStatus('转换中…')
+        const response = await requestJson(`${API}/aab2apk/convert`, { config })
+        if (response?.ok !== true) {
+          setRunning(false)
+          setStatus(`无法开始：${response?.error ?? '未知错误'}`)
+          return
+        }
+        setJobId(response.jobId)
+        void poll(response.jobId)
+      }
+
+      const cancel = async () => {
+        stopPolling()
+        if (jobId) await requestJson(`${API}/aab2apk/cancel`, { id: jobId })
+        setStatus('已请求取消…')
+      }
+
+      const browse = async (field, mode) => {
+        const current = String(valueOf(field) ?? '')
+        let start = current
+        if (mode === 'file' && start.length > 0) {
+          const cut = Math.max(start.lastIndexOf('\\'), start.lastIndexOf('/'))
+          if (cut > 0) start = start.slice(0, cut)
+        }
+        if (start.length === 0) start = detected?.outputDir ?? ''
+        const response = await requestJson(`${API}/aab2apk/browse?path=${encodeURIComponent(start)}`)
+        if (response?.ok === true) setPicker({ field, mode, ...response })
+        else setStatus(response?.error ?? '无法浏览目录')
+      }
+
+      const navigate = async (dir) => {
+        const response = await requestJson(`${API}/aab2apk/browse?path=${encodeURIComponent(dir)}`)
+        if (response?.ok === true) setPicker((previous) => ({ field: previous.field, mode: previous.mode, ...response }))
+        else setStatus(response?.error ?? '无法浏览目录')
+      }
+
+      const inputRow = (label, path, options = {}) =>
+        h(
+          'div',
+          { style: S.field, key: path },
+          h('label', { style: S.fieldLabel }, h('span', null, label), h('span', { style: S.fieldKey }, path)),
+          options.browse === undefined
+            ? h('input', { style: S.input, type: options.type ?? 'text', value: valueOf(path) ?? '', placeholder: options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) })
+            : h(
+                'div',
+                { style: S.aabPathRow },
+                h('input', { style: { ...S.input, flex: 1, minWidth: 0 }, type: options.type ?? 'text', value: valueOf(path) ?? '', placeholder: options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) }),
+                h('button', { style: S.btn, onClick: () => void browse(path, options.browse) }, '浏览'),
+              ),
+          options.hint ? h('span', { style: S.muted }, options.hint) : null,
+        )
+
+      const checkRow = (label, path) =>
+        h(
+          'label',
+          { style: S.aabCheck, key: path },
+          h('input', { type: 'checkbox', checked: valueOf(path) === true, onChange: (event) => setField(path, event.target.checked) }),
+          h('span', null, label),
+        )
+
+      if (config === undefined) {
+        return h('div', { style: S.empty }, '正在读取 AAB→APK 配置…')
+      }
+
+      const storeType = config.keystore?.storeType ?? ''
+      const toolLines = detected?.notes ?? []
+
+      return h(
+        'div',
+        { style: { ...S.aabWrap, position: 'relative' } },
+        h(
+          'div',
+          { style: S.aabScroll },
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, '输入与输出'),
+            h(
+              'div',
+              { style: S.aabGrid },
+              inputRow('AAB 文件', 'aabPath', { browse: 'file', placeholder: '选择 .aab 文件（可拖到窗口）' }),
+              inputRow('输出文件夹', 'outputDir', { browse: 'dir', placeholder: '留空使用插件目录下的 output' }),
+              inputRow('输出文件名', 'outputName', { placeholder: '留空 = 从 AAB 文件名推导，可带/不带 .apk' }),
+              inputRow('缓存目录', 'tempDir', { browse: 'dir', placeholder: '留空使用系统临时目录（建议放空间大的盘）' }),
+            ),
+          ),
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, '密钥库与签名'),
+            h(
+              'div',
+              { style: S.aabGrid },
+              inputRow('密钥库文件', 'keystore.keystorePath', { browse: 'file', placeholder: '.jks / .keystore / .p12 / .pfx / .bks' }),
+              inputRow('密钥库密码', 'keystore.keystorePassword', { type: 'password' }),
+              inputRow('密钥别名', 'keystore.keyAlias'),
+              inputRow('密钥密码', 'keystore.keyPassword', { type: 'password', placeholder: '留空 = 与密钥库密码相同' }),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '密钥库类型'), h('span', { style: S.fieldKey }, 'keystore.storeType')),
+                h(
+                  'select',
+                  { style: S.input, value: storeType, onChange: (event) => setField('keystore.storeType', event.target.value === '' ? null : event.target.value) },
+                  h('option', { value: '' }, '自动识别'),
+                  h('option', { value: 'JKS' }, 'JKS'),
+                  h('option', { value: 'PKCS12' }, 'PKCS12'),
+                  h('option', { value: 'BKS' }, 'BKS'),
+                ),
+              ),
+            ),
+            h('div', { style: { ...S.row, marginTop: 2 } }, checkRow('生成 v4 签名（.idsig）', 'keystore.v4Signing')),
+          ),
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, '构建工具（留空自动检测）'),
+            h(
+              'div',
+              { style: S.aabGrid },
+              inputRow('bundletool jar', 'tools.bundletoolJar', { browse: 'file', placeholder: 'bundletool-all.jar' }),
+              inputRow('Java', 'tools.javaPath', { browse: 'dir', placeholder: 'java.exe 或 JAVA_HOME 目录' }),
+              inputRow('Android SDK 根目录', 'tools.androidSdkRoot', { browse: 'dir', placeholder: '用于定位 build-tools 下的 apksigner / zipalign' }),
+              inputRow('apksigner', 'tools.apksignerPath', { browse: 'file', placeholder: 'apksigner.bat / 具体路径' }),
+              inputRow('zipalign', 'tools.zipalignPath', { browse: 'file', placeholder: 'zipalign.exe / 具体路径' }),
+            ),
+            h('div', { style: S.row }, h('button', { style: S.btn, onClick: () => void detect() }, '检测工具')),
+            detected === undefined
+              ? null
+              : h(
+                  'div',
+                  { style: { ...S.muted, marginTop: 6, whiteSpace: 'pre-wrap' } },
+                  `${detected.ok === true ? '工具就绪' : `缺少工具：${detected.error ?? ''}`}${toolLines.length > 0 ? `\n${toolLines.join('\n')}` : ''}`,
+                ),
+          ),
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, '转换流程与高级选项'),
+            h(
+              'div',
+              { style: S.aabGrid },
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, 'zipalign 对齐字节数'), h('span', { style: S.fieldKey }, 'alignment')),
+                h('input', { style: S.input, type: 'number', min: 1, max: 64, value: String(valueOf('alignment') ?? 4), onChange: (event) => setField('alignment', Number(event.target.value)) }),
+              ),
+              inputRow('额外 bundletool 参数', 'extraBundletoolArgs', { placeholder: '例如 --enable-sparse-encoding' }),
+              inputRow('额外 apksigner 参数', 'extraApksignerArgs', { placeholder: '例如 --v4-signing-enabled true' }),
+              inputRow('JVM 参数', 'javaOptions', { placeholder: '例如 -Xmx2g' }),
+            ),
+            h(
+              'div',
+              { style: { ...S.row, marginTop: 4 } },
+              checkRow('zipalign 对齐', 'align'),
+              checkRow('签名后校验', 'verify'),
+              checkRow('覆盖已存在文件', 'overwrite'),
+              checkRow('保留 .apks 中间产物', 'keepIntermediate'),
+              checkRow('结束后清理缓存', 'cleanupTemp'),
+            ),
+            h(
+              'details',
+              { style: { marginTop: 6 } },
+              h('summary', { style: { fontSize: 12.5, cursor: 'pointer', opacity: 0.8 } }, '更多路径（一般不用填）'),
+              h(
+                'div',
+                { style: { ...S.aabGrid, marginTop: 8 } },
+                inputRow('AndroidManifest.xml', 'manifestPath', { browse: 'file' }),
+                inputRow('device-spec.json', 'deviceSpecPath', { browse: 'file' }),
+                inputRow('signing-config.json', 'bundletoolSigningConfig', { browse: 'file' }),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { style: S.row },
+            h('button', { style: S.btnPrimary, disabled: running, onClick: () => void start() }, running ? '转换中…' : '开始转换'),
+            h('button', { style: S.btn, onClick: () => void save() }, '保存配置'),
+            h('button', { style: running ? S.btn : { ...S.btn, ...S.btnDisabled }, disabled: !running, onClick: () => void cancel() }, '取消'),
+            h('span', { style: S.muted }, status),
+          ),
+          result
+            ? h(
+                'div',
+                { style: S.err },
+                `${result.message ?? '完成'} · ${result.sizeHuman ?? ''} · ${result.durationMs ?? 0}ms${result.verified ? ' · 已校验' : ''}\n${result.outputApk ?? ''}`,
+              )
+            : null,
+          h('pre', { ref: logRef, style: S.aabLog }, events.length === 0 ? '转换日志会显示在这里。' : events.map(formatAabEvent).join('\n')),
+        ),
+        picker === undefined
+          ? null
+          : h(
+              'div',
+              { style: S.aabOverlay },
+              h(
+                'div',
+                { style: S.aabDialog },
+                h(
+                  'div',
+                  { style: S.aabDialogHead },
+                  h('button', { style: S.btn, onClick: () => void navigate(picker.dir) }, '刷新'),
+                  picker.mode === 'dir'
+                    ? h('button', { style: S.btnPrimary, onClick: () => { setField(picker.field, picker.dir); setPicker(undefined) } }, '使用此文件夹')
+                    : null,
+                  h('span', { style: { ...S.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, picker.dir),
+                  h('button', { style: S.btn, onClick: () => setPicker(undefined) }, '关闭'),
+                ),
+                h(
+                  'div',
+                  { style: S.aabDialogList },
+                  picker.parent
+                    ? h('button', { style: S.aabDialogRow, onClick: () => void navigate(picker.parent) }, '..')
+                    : null,
+                  (picker.entries ?? []).map((entry) =>
+                    h(
+                      'button',
+                      {
+                        key: entry.path,
+                        style: S.aabDialogRow,
+                        onClick: () => {
+                          if (entry.dir) {
+                            void navigate(entry.path)
+                          } else {
+                            setField(picker.field, entry.path)
+                            setPicker(undefined)
+                          }
+                        },
+                      },
+                      h('span', null, entry.dir ? '📁' : '📄'),
+                      h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, entry.name),
+                      entry.dir ? null : h('span', { style: S.muted }, entry.size >= 1024 * 1024 ? `${(entry.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(entry.size / 1024))} KB`),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      )
+    }
+
     // ── 设置页 ─────────────────────────────────────────────────────────────
     const SETTINGS_NAMESPACE = 'dsh-android-tool'
     const MARKER_FIELD = 'adbPath'
@@ -1662,7 +2047,7 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['slots', 'sidebarRight', 'sidebarRightTabs'],
-      __components: { AndroidPanel, ScreenTab, LogcatTab, PerfTab, CommandTab, AndroidSettingsSection },
+      __components: { AndroidPanel, ScreenTab, LogcatTab, PerfTab, CommandTab, Aab2ApkTab, AndroidSettingsSection },
       apply(ctx) {
         // 1) 右侧 Sidebar 的「安卓设备」页
         try {
