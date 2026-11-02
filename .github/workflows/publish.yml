@@ -1,0 +1,37 @@
+name: Publish to npm
+
+# 用 npm 的「Trusted Publisher（GitHub Actions OIDC）」发布，不需要 NPM_TOKEN。
+# 触发方式：推一个 v* 标签（例如 v0.2.0），或到 Actions 页面手动 Run workflow。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC 取临时凭证，npm 用它换发布权限
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Trusted publishing 需要 npm >= 11.5.1
+      - name: Upgrade npm
+        run: npm install -g npm@^11
+
+      - name: Show versions
+        run: node -v && npm -v
+
+      - name: Publish
+        run: |
+          npm config set registry https://registry.npmjs.org
+          npm publish --provenance --access public
