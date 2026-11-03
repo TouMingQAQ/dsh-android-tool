@@ -55,9 +55,12 @@ test('resolveExecutablePaths 显式路径优先', () => {
   assert.equal(value.scrcpyPath, 'D:/scrcpy.exe')
 })
 
-test('resolveDataRoot 优先级 profile > home', () => {
+test('resolveDataRoot 优先级 dataDir > workspace > profile > home', () => {
+  assert.equal(resolveDataRoot({ dataDir: 'D:/data', workspaceDir: 'C:/ws', profileDir: 'C:/profile', homeDir: 'C:/home', join }).root, 'D:/data')
+  assert.equal(resolveDataRoot({ workspaceDir: 'C:/ws', profileDir: 'C:/profile', homeDir: 'C:/home', join }).root, join('C:/ws', '.android_tool'))
+  assert.equal(resolveDataRoot({ workspaceDir: 'C:/ws', profileDir: 'C:/profile', homeDir: 'C:/home', join }).source, 'workspace')
   assert.equal(resolveDataRoot({ profileDir: 'C:/profile', homeDir: 'C:/home', join }).source, 'profile')
-  assert.equal(resolveDataRoot({ homeDir: 'C:/home', join }).root, join('C:/home', '.dsh-android-tool'))
+  assert.equal(resolveDataRoot({ homeDir: 'C:/home', join }).root, join('C:/home', '.android_tool'))
 })
 
 test('splitArgs 支持引号与转义', () => {

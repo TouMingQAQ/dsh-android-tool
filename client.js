@@ -15,6 +15,30 @@ window.__ModuleLoader__.load({
     const TAB_ID = 'dsh-android-tool'
     const AUTO_OPEN_KEY = 'dsh-android-tool.lastOpenedAt'
 
+    // 插件根的 ctx（apply 时赋值）。用来向宿主问「当前是哪个会话」，
+    // 好让 AAB→APK 的配置落到这个会话的工作区里。
+    let hostCtx
+
+    /** 当前会话 id；取不到返回空串。 */
+    function currentSessionId() {
+      try {
+        const sessions = hostCtx?.get?.('sessions')
+        if (sessions === undefined) return ''
+        const fromScope = typeof sessions.scopeOf === 'function' ? sessions.scopeOf(hostCtx) : undefined
+        return typeof fromScope === 'string' ? fromScope : ''
+      } catch {
+        return ''
+      }
+    }
+
+    /** 给 aab2apk 的请求带上 session，让宿主能定位目标工作区。 */
+    function withSession(url) {
+      if (!String(url).includes('/aab2apk/')) return url
+      const id = currentSessionId()
+      if (id.length === 0) return url
+      return `${url}${url.includes('?') ? '&' : '?'}session=${encodeURIComponent(id)}`
+    }
+
     const S = {
       root: {
         display: 'flex',
@@ -189,7 +213,7 @@ window.__ModuleLoader__.load({
           body === undefined
             ? { headers: { accept: 'application/json' } }
             : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-        const response = await fetch(url, options)
+        const response = await fetch(withSession(url), options)
         const text = await response.text()
         if (text.length === 0) return { ok: response.ok }
         try {
@@ -1444,6 +1468,7 @@ window.__ModuleLoader__.load({
     function Aab2ApkTab() {
       const [config, setConfig] = React.useState(undefined)
       const [detected, setDetected] = React.useState(undefined)
+      const [paths, setPaths] = React.useState({})
       const [status, setStatus] = React.useState('')
       const [running, setRunning] = React.useState(false)
       const [events, setEvents] = React.useState([])
@@ -1461,7 +1486,11 @@ window.__ModuleLoader__.load({
           if (!stopped && response?.ok === true) {
             setConfig(response.config)
             setDetected(response.detected)
+            setPaths({ dataRoot: response.dataRoot ?? '', baseDir: response.baseDir ?? '', workspaceDir: response.workspaceDir ?? '' })
           }
+          // 配置一读完就顺手检测工具，省得用户再点一次「检测工具」。
+          const probe = await requestJson(`${API}/aab2apk/detect`)
+          if (!stopped && probe !== undefined && probe !== null) setDetected(probe)
         })()
         return () => {
           stopped = true
@@ -1573,21 +1602,51 @@ window.__ModuleLoader__.load({
         else setStatus(response?.error ?? '无法浏览目录')
       }
 
-      const inputRow = (label, path, options = {}) =>
-        h(
+      /** 某个「构建工具」字段自动检测到的路径；没有就返回空串。 */
+      const detectedFor = (path) => {
+        const tools = detected?.tools ?? {}
+        if (path === 'tools.bundletoolJar') return String(tools.bundletool ?? '')
+        if (path === 'tools.javaPath') return String(tools.java ?? '')
+        if (path === 'tools.apksignerPath') return String(tools.apksigner ?? '')
+        if (path === 'tools.zipalignPath') return String(tools.zipalign ?? '')
+        return ''
+      }
+
+      const fillDetectedTools = () => {
+        for (const [path, key] of [
+          ['tools.bundletoolJar', 'bundletool'],
+          ['tools.javaPath', 'java'],
+          ['tools.apksignerPath', 'apksigner'],
+          ['tools.zipalignPath', 'zipalign'],
+        ]) {
+          const value = String(detected?.tools?.[key] ?? '')
+          if (value.length > 0) setField(path, value)
+        }
+      }
+
+      const inputRow = (label, path, options = {}) => {
+        const current = String(valueOf(path) ?? '')
+        const auto = options.auto === true ? detectedFor(path) : ''
+        const showAuto = current.trim().length === 0 && auto.length > 0
+        return h(
           'div',
           { style: S.field, key: path },
           h('label', { style: S.fieldLabel }, h('span', null, label), h('span', { style: S.fieldKey }, path)),
           options.browse === undefined
-            ? h('input', { style: S.input, type: options.type ?? 'text', value: valueOf(path) ?? '', placeholder: options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) })
+            ? h('input', { style: S.input, type: options.type ?? 'text', value: current, placeholder: showAuto ? auto : options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) })
             : h(
                 'div',
                 { style: S.aabPathRow },
-                h('input', { style: { ...S.input, flex: 1, minWidth: 0 }, type: options.type ?? 'text', value: valueOf(path) ?? '', placeholder: options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) }),
+                h('input', { style: { ...S.input, flex: 1, minWidth: 0 }, type: options.type ?? 'text', value: current, placeholder: showAuto ? auto : options.placeholder ?? '', spellCheck: false, onChange: (event) => setField(path, event.target.value) }),
+                showAuto
+                  ? h('button', { style: S.btn, title: `自动检测：${auto}`, onClick: () => setField(path, auto) }, '用检测值')
+                  : null,
                 h('button', { style: S.btn, onClick: () => void browse(path, options.browse) }, '浏览'),
               ),
+          showAuto ? h('span', { style: { ...S.muted, wordBreak: 'break-all' } }, `自动检测：${auto}`) : null,
           options.hint ? h('span', { style: S.muted }, options.hint) : null,
         )
+      }
 
       const checkRow = (label, path) =>
         h(
@@ -1612,16 +1671,23 @@ window.__ModuleLoader__.load({
           { style: S.aabScroll },
           h(
             'div',
+            { style: { ...S.muted, fontSize: 11.5, wordBreak: 'break-all', marginBottom: -4 } },
+            paths.dataRoot ? `配置目录：${paths.dataRoot}` : '配置目录：读取中…',
+            paths.workspaceDir ? h('span', null, `　工作区：${paths.workspaceDir}`) : null,
+          ),
+          h(
+            'div',
             { style: S.aabSection },
             h('div', { style: S.aabTitle }, '输入与输出'),
             h(
               'div',
               { style: S.aabGrid },
-              inputRow('AAB 文件', 'aabPath', { browse: 'file', placeholder: '选择 .aab 文件（可拖到窗口）' }),
-              inputRow('输出文件夹', 'outputDir', { browse: 'dir', placeholder: '留空使用插件目录下的 output' }),
+              inputRow('AAB 文件', 'aabPath', { browse: 'file', placeholder: '粘贴 .aab 的完整路径，或点「浏览」选择' }),
+              inputRow('输出文件夹', 'outputDir', { browse: 'dir', placeholder: '留空 = 目标工作区下的 output' }),
               inputRow('输出文件名', 'outputName', { placeholder: '留空 = 从 AAB 文件名推导，可带/不带 .apk' }),
               inputRow('缓存目录', 'tempDir', { browse: 'dir', placeholder: '留空使用系统临时目录（建议放空间大的盘）' }),
             ),
+            h('div', { style: { ...S.muted, marginTop: 6 } }, '提示：界面拿不到拖进来的文件（被 DSH 拦截），请粘贴路径或点「浏览」选择。'),
           ),
           h(
             'div',
@@ -1653,17 +1719,27 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.aabSection },
-            h('div', { style: S.aabTitle }, '构建工具（留空自动检测）'),
+            h(
+              'div',
+              { style: S.aabTitle },
+              h('span', null, '构建工具'),
+              detected === undefined ? null : h('span', { style: { ...S.muted, fontWeight: 'normal' } }, detected.ok === true ? '· 已自动检测，无需手动填写' : '· 有工具缺失'),
+            ),
             h(
               'div',
               { style: S.aabGrid },
-              inputRow('bundletool jar', 'tools.bundletoolJar', { browse: 'file', placeholder: 'bundletool-all.jar' }),
-              inputRow('Java', 'tools.javaPath', { browse: 'dir', placeholder: 'java.exe 或 JAVA_HOME 目录' }),
+              inputRow('bundletool jar', 'tools.bundletoolJar', { browse: 'file', auto: true, placeholder: 'bundletool-all.jar' }),
+              inputRow('Java', 'tools.javaPath', { browse: 'dir', auto: true, placeholder: 'java.exe 或 JAVA_HOME 目录' }),
               inputRow('Android SDK 根目录', 'tools.androidSdkRoot', { browse: 'dir', placeholder: '用于定位 build-tools 下的 apksigner / zipalign' }),
-              inputRow('apksigner', 'tools.apksignerPath', { browse: 'file', placeholder: 'apksigner.bat / 具体路径' }),
-              inputRow('zipalign', 'tools.zipalignPath', { browse: 'file', placeholder: 'zipalign.exe / 具体路径' }),
+              inputRow('apksigner', 'tools.apksignerPath', { browse: 'file', auto: true, placeholder: 'apksigner.bat / 具体路径' }),
+              inputRow('zipalign', 'tools.zipalignPath', { browse: 'file', auto: true, placeholder: 'zipalign.exe / 具体路径' }),
             ),
-            h('div', { style: S.row }, h('button', { style: S.btn, onClick: () => void detect() }, '检测工具')),
+            h(
+              'div',
+              { style: S.row },
+              h('button', { style: S.btn, onClick: () => void detect() }, '检测工具'),
+              detected !== undefined && detected.ok === true ? h('button', { style: S.btn, onClick: fillDetectedTools }, '填入检测值') : null,
+            ),
             detected === undefined
               ? null
               : h(
@@ -2049,6 +2125,7 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'sidebarRight', 'sidebarRightTabs'],
       __components: { AndroidPanel, ScreenTab, LogcatTab, PerfTab, CommandTab, Aab2ApkTab, AndroidSettingsSection },
       apply(ctx) {
+        hostCtx = ctx
         // 1) 右侧 Sidebar 的「安卓设备」页
         try {
           ctx.effect(

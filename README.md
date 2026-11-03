@@ -103,11 +103,11 @@ fetch-retry-maxtimeout=120000
 .aab → bundletool build-apks --mode=universal → 解包 universal.apk → zipalign → apksigner sign → apksigner verify → .apk
 ```
 
-- **输入与输出**：AAB 文件、输出文件夹、输出名、缓存目录；所有路径都能点「浏览」选择。
+- **输入与输出**：AAB 文件、输出文件夹、输出名、缓存目录；AAB 路径直接粘贴或点「浏览」选择（DSH 会拦截拖进来的文件，界面拿不到拖拽）。
 - **密钥库与签名**：`.jks/.keystore/.p12/.pfx/.bks`、密码、别名、密钥密码、密钥库类型、v4 签名。密码在日志里统一显示为 `pass:***`。
-- **构建工具**：bundletool jar、Java、Android SDK、apksigner、zipalign；留空自动探测（`JAVA_HOME`、`ANDROID_HOME`、`%LOCALAPPDATA%\Android\Sdk`、`build-tools/<版本>`、PATH 都会查），每一项也能手动覆盖。
+- **构建工具**：bundletool jar、Java、Android SDK、apksigner、zipalign；打开面板即自动探测（`JAVA_HOME`、`ANDROID_HOME`、`%LOCALAPPDATA%\Android\Sdk`、`build-tools/<版本>`、PATH 都会查），检测到的路径直接显示在输入框里、可一键「填入检测值」，已经配好就不用再去浏览。
 - **自动识别**：`bundle` 没有 `BundleConfig.pb` 时自动从 AAB 抽出 `AndroidManifest.xml` 传给 `--aab-manifest`。
-- **配置持久化**：存在 `.dsh-android-tool/aab2apk.config.json`，与 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的字段一致；相对路径以插件目录为基准，换机器仍可用。
+- **配置持久化**：优先存到当前会话工作区下的 `.android_tool/aab2apk.config.json`（相对路径也以工作区为基准）；取不到工作区时退回 DSH 配置目录下的 `.android_tool`，最后才落到用户主目录。与 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的字段一致。
 - **取消 / 超时**：每一步都支持取消；bundletool 30 分钟、签名/对齐 10 分钟、校验 5 分钟超时。
 - 需要 **Java** 和 **Android SDK Build-Tools**（apksigner / zipalign）；`bundletool-all.jar` 已随包放在 `tools/`，也可以用界面覆盖成别的版本。缺哪个会在检测结果里直接写出来。
 
