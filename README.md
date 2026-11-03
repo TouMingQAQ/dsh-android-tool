@@ -109,6 +109,7 @@ fetch-retry-maxtimeout=120000
 - **自动识别**：`bundle` 没有 `BundleConfig.pb` 时自动从 AAB 抽出 `AndroidManifest.xml` 传给 `--aab-manifest`。
 - **配置持久化**：优先存到当前会话工作区下的 `.android_tool/aab2apk.config.json`（相对路径也以工作区为基准）；取不到工作区时退回 DSH 配置目录下的 `.android_tool`，最后才落到用户主目录。与 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的字段一致。
 - **取消 / 超时**：每一步都支持取消；bundletool 30 分钟、签名/对齐 10 分钟、校验 5 分钟超时。
+- **进度与折叠**：转换时显示百分比进度条和七步流程清单（检查配置 → build-apks → 解包 → 对齐 → 签名 → 校验 → 完成）；各参数卡片可折叠，不占地方。
 - 需要 **Java** 和 **Android SDK Build-Tools**（apksigner / zipalign）；`bundletool-all.jar` 已随包放在 `tools/`，也可以用界面覆盖成别的版本。缺哪个会在检测结果里直接写出来。
 
 ## AI 工具

@@ -197,6 +197,23 @@ window.__ModuleLoader__.load({
       aabGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 },
       aabSection: { border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22))', borderRadius: 10, padding: '10px 12px', background: 'var(--dsw-alias-fill-l2, rgba(127,127,127,.04))' },
       aabTitle: { fontSize: 12.5, opacity: 0.72, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 },
+      aabSectionHead: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        padding: 0,
+        border: 'none',
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        fontSize: 12.5,
+        cursor: 'pointer',
+        textAlign: 'left',
+      },
+      aabProgressTrack: { height: 6, borderRadius: 999, background: 'rgba(127,127,127,.22)', overflow: 'hidden', marginTop: 6 },
+      aabProgressFill: { height: '100%', borderRadius: 999, background: 'var(--dsw-alias-accent, #3b82f6)', transition: 'width .25s ease' },
+      aabStepRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, lineHeight: '20px' },
       aabCheck: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, lineHeight: '22px' },
       aabPathRow: { display: 'flex', gap: 6, alignItems: 'center' },
       aabLog: { flex: '0 0 auto', height: 220, overflow: 'auto', margin: 0, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))', background: 'rgba(0,0,0,.14)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
@@ -1465,6 +1482,40 @@ window.__ModuleLoader__.load({
       return `    ${event.message ?? ''}`
     }
 
+    // 转换流程（与后端 STEPS 对应），weight 用来算总进度。
+    const AAB_STEPS = [
+      { step: 'validate', label: '检查配置', weight: 8 },
+      { step: 'build-apks', label: '生成通用 APK', weight: 42 },
+      { step: 'extract', label: '解包通用 APK', weight: 12 },
+      { step: 'align', label: '对齐 APK', weight: 8 },
+      { step: 'sign', label: '签名 APK', weight: 20 },
+      { step: 'verify', label: '校验签名', weight: 7 },
+      { step: 'done', label: '完成', weight: 3 },
+    ]
+
+    /** 从事件里汇总每一步的状态与整体进度。 */
+    function analyzeAabProgress(events) {
+      const status = {}
+      for (const event of events) {
+        if (event.kind === 'step-started') status[event.step] = 'running'
+        else if (event.kind === 'step-finished') status[event.step] = 'done'
+        else if (event.kind === 'step-skipped') status[event.step] = 'skipped'
+        else if (event.kind === 'error') status[event.step] = 'error'
+      }
+      let percent = 0
+      let active = ''
+      let failed = false
+      for (const item of AAB_STEPS) {
+        const state = status[item.step]
+        if (state === 'done' || state === 'skipped') percent += item.weight
+        else if (state === 'running') {
+          percent += item.weight * 0.4
+          active = item.label
+        } else if (state === 'error') failed = true
+      }
+      return { percent: Math.max(0, Math.min(100, Math.round(percent))), status, active, failed }
+    }
+
     function Aab2ApkTab() {
       const [config, setConfig] = React.useState(undefined)
       const [detected, setDetected] = React.useState(undefined)
@@ -1475,6 +1526,7 @@ window.__ModuleLoader__.load({
       const [result, setResult] = React.useState(undefined)
       const [picker, setPicker] = React.useState(undefined)
       const [jobId, setJobId] = React.useState('')
+      const [openSections, setOpenSections] = React.useState({ input: true, keystore: true, tools: false, advanced: false })
       const cursorRef = React.useRef(0)
       const pollRef = React.useRef(undefined)
       const logRef = React.useRef(null)
@@ -1656,12 +1708,35 @@ window.__ModuleLoader__.load({
           h('span', null, label),
         )
 
+      const toggleSection = (key) => setOpenSections((previous) => ({ ...previous, [key]: !previous[key] }))
+      const section = (key, title, summary, ...content) =>
+        h(
+          'div',
+          { style: S.aabSection },
+          h(
+            'button',
+            { type: 'button', style: S.aabSectionHead, onClick: () => toggleSection(key), 'aria-expanded': openSections[key] === true },
+            h('span', { style: { width: 12, opacity: 0.7 } }, openSections[key] === true ? '▾' : '▸'),
+            h('span', { style: { flex: 1 } }, title),
+            summary ? h('span', { style: { ...S.muted, fontWeight: 'normal' } }, summary) : null,
+          ),
+          openSections[key] === true ? h('div', { style: { marginTop: 9 } }, ...content) : null,
+        )
+
       if (config === undefined) {
         return h('div', { style: S.empty }, '正在读取 AAB→APK 配置…')
       }
 
       const storeType = config.keystore?.storeType ?? ''
       const toolLines = detected?.notes ?? []
+      const progress = analyzeAabProgress(events)
+      const runningStep = progress.active
+      const aabName = String(valueOf('aabPath') ?? '').trim().split(/[\\/]/u).pop() || '未选 AAB'
+      const keystoreReady =
+        String(valueOf('keystore.keystorePath') ?? '').trim().length > 0 &&
+        String(valueOf('keystore.keystorePassword') ?? '').length > 0 &&
+        String(valueOf('keystore.keyAlias') ?? '').trim().length > 0
+      const toolsSummary = detected === undefined ? '' : detected.ok === true ? '工具就绪' : '有工具缺失'
 
       return h(
         'div',
@@ -1675,10 +1750,7 @@ window.__ModuleLoader__.load({
             paths.dataRoot ? `配置目录：${paths.dataRoot}` : '配置目录：读取中…',
             paths.workspaceDir ? h('span', null, `　工作区：${paths.workspaceDir}`) : null,
           ),
-          h(
-            'div',
-            { style: S.aabSection },
-            h('div', { style: S.aabTitle }, '输入与输出'),
+          section('input', '输入与输出', aabName,
             h(
               'div',
               { style: S.aabGrid },
@@ -1689,10 +1761,7 @@ window.__ModuleLoader__.load({
             ),
             h('div', { style: { ...S.muted, marginTop: 6 } }, '提示：界面拿不到拖进来的文件（被 DSH 拦截），请粘贴路径或点「浏览」选择。'),
           ),
-          h(
-            'div',
-            { style: S.aabSection },
-            h('div', { style: S.aabTitle }, '密钥库与签名'),
+          section('keystore', '密钥库与签名', keystoreReady ? '已配置' : '未配置',
             h(
               'div',
               { style: S.aabGrid },
@@ -1716,15 +1785,7 @@ window.__ModuleLoader__.load({
             ),
             h('div', { style: { ...S.row, marginTop: 2 } }, checkRow('生成 v4 签名（.idsig）', 'keystore.v4Signing')),
           ),
-          h(
-            'div',
-            { style: S.aabSection },
-            h(
-              'div',
-              { style: S.aabTitle },
-              h('span', null, '构建工具'),
-              detected === undefined ? null : h('span', { style: { ...S.muted, fontWeight: 'normal' } }, detected.ok === true ? '· 已自动检测，无需手动填写' : '· 有工具缺失'),
-            ),
+          section('tools', '构建工具', toolsSummary,
             h(
               'div',
               { style: S.aabGrid },
@@ -1748,10 +1809,7 @@ window.__ModuleLoader__.load({
                   `${detected.ok === true ? '工具就绪' : `缺少工具：${detected.error ?? ''}`}${toolLines.length > 0 ? `\n${toolLines.join('\n')}` : ''}`,
                 ),
           ),
-          h(
-            'div',
-            { style: S.aabSection },
-            h('div', { style: S.aabTitle }, '转换流程与高级选项'),
+          section('advanced', '转换流程与高级选项', '',
             h(
               'div',
               { style: S.aabGrid },
@@ -1795,6 +1853,45 @@ window.__ModuleLoader__.load({
             h('button', { style: running ? S.btn : { ...S.btn, ...S.btnDisabled }, disabled: !running, onClick: () => void cancel() }, '取消'),
             h('span', { style: S.muted }, status),
           ),
+          events.length === 0 && result === undefined
+            ? null
+            : h(
+                'div',
+                { style: S.aabSection },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 } },
+                  h(
+                    'span',
+                    { style: { flex: 1, opacity: 0.85 } },
+                    result !== undefined ? '转换完成' : progress.failed ? '转换失败' : running ? `正在转换…${runningStep ? ` · ${runningStep}` : ''}` : '转换进度',
+                  ),
+                  h('span', { style: S.muted }, `${progress.percent}%`),
+                ),
+                h('div', { style: S.aabProgressTrack }, h('div', { style: { ...S.aabProgressFill, width: `${progress.percent}%` } })),
+                h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', marginTop: 8 } },
+                  AAB_STEPS.map((item) => {
+                    const state = progress.status[item.step]
+                    const glyph = state === 'done' ? '✓' : state === 'skipped' ? '—' : state === 'running' ? '▸' : state === 'error' ? '✕' : '·'
+                    const color =
+                      state === 'done'
+                        ? 'var(--dsw-alias-text-positive, #2e8b57)'
+                        : state === 'error'
+                          ? 'var(--dsw-alias-text-danger, #e5534b)'
+                          : state === 'running'
+                            ? 'var(--dsw-alias-accent, #3b82f6)'
+                            : 'inherit'
+                    return h(
+                      'div',
+                      { key: item.step, style: { ...S.aabStepRow, color, opacity: state === undefined ? 0.5 : 1 } },
+                      h('span', { style: { width: 14 } }, glyph),
+                      h('span', null, item.label),
+                    )
+                  }),
+                ),
+              ),
           result
             ? h(
                 'div',
