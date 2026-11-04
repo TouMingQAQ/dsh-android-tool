@@ -1,4 +1,4 @@
-// dsh-android-tool 的浏览器半边：右侧「安卓设备」四 Tab + 设置里的「安卓调试」。
+// dsh-android-tool 的浏览器半边：右侧「安卓设备」五 Tab + 设置里的「安卓调试」。
 //
 // 约束与其它 dsh-yisu 子插件一致：
 //   1. 自注册脚本：window.__ModuleLoader__.load({ id, factory })，不 import；
@@ -158,6 +158,18 @@ window.__ModuleLoader__.load({
         border: '1px solid currentColor',
         color: ok ? 'var(--dsw-alias-text-positive, #2e8b57)' : 'var(--dsw-alias-text-warning, #c98a00)',
       }),
+      gamepadWrap: {
+        flex: '0 0 auto',
+        maxHeight: '48%',
+        overflow: 'auto',
+        borderTop: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.18))',
+        padding: '5px 9px 7px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      },
+      gamepadHead: { display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, opacity: 0.9, flexWrap: 'wrap' },
+      gamepadHint: { fontSize: 11, opacity: 0.6, lineHeight: 1.5 },
       err: {
         margin: '6px 9px',
         padding: '5px 9px',
@@ -595,7 +607,9 @@ window.__ModuleLoader__.load({
         const next = await requestJson(`${API}/state.json`)
         if (next !== undefined && next !== null) {
           setState(next)
+          // 一次偶发 fetch 失败不该让红色报错一直挂着；成功时清掉。
           if (next.ok === false && next.error) setError(next.error)
+          else setError('')
         }
       }, [])
 
@@ -612,6 +626,11 @@ window.__ModuleLoader__.load({
           if (timer !== undefined) window.clearTimeout(timer)
         }
       }, [refresh])
+
+      // AI 用手柄时切回「界面」，好让画出来的手柄能被看到。
+      React.useEffect(() => {
+        if (state?.gamepad?.source === 'ai') setTab('screen')
+      }, [state?.gamepad?.updatedAt])
 
       const choose = async (serial) => {
         await requestJson(`${API}/command`, { action: 'select', serial })
@@ -682,6 +701,374 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── 手柄模型 / 绘制（与 lib/gamepad.js 对齐的精简版）──────────────────────
+    const GP_BUTTONS = ['a', 'b', 'x', 'y', 'lb', 'rb', 'back', 'start', 'guide', 'lstick', 'rstick', 'up', 'down', 'left', 'right']
+    const GP_TYPE_OPTIONS = [
+      { id: 'xbox', label: 'XBox' },
+      { id: 'ps', label: 'PlayStation' },
+      { id: 'switch', label: 'Nintendo Switch' },
+    ]
+    // 面板按键位置 → 归一化按钮 + 显示名 / 颜色。canonical 里 a=下、b=右、x=左、y=上。
+    const GP_FACE_LAYOUT = {
+      xbox: {
+        top: { name: 'y', label: 'Y', color: '#eab308' },
+        bottom: { name: 'a', label: 'A', color: '#22c55e' },
+        left: { name: 'x', label: 'X', color: '#3b82f6' },
+        right: { name: 'b', label: 'B', color: '#ef4444' },
+      },
+      ps: {
+        top: { name: 'y', label: '△', color: '#22c55e' },
+        bottom: { name: 'a', label: '✕', color: '#3b82f6' },
+        left: { name: 'x', label: '□', color: '#ec4899' },
+        right: { name: 'b', label: '○', color: '#ef4444' },
+      },
+      switch: {
+        top: { name: 'x', label: 'X', color: '#3b82f6' },
+        bottom: { name: 'b', label: 'B', color: '#ef4444' },
+        left: { name: 'y', label: 'Y', color: '#eab308' },
+        right: { name: 'a', label: 'A', color: '#22c55e' },
+      },
+    }
+    function gamepadFaceLayout(type) {
+      return GP_FACE_LAYOUT[type] ?? GP_FACE_LAYOUT.xbox
+    }
+
+    function emptyGamepad() {
+      const buttons = {}
+      for (const name of GP_BUTTONS) buttons[name] = false
+      return { buttons, lstick: { x: 0, y: 0 }, rstick: { x: 0, y: 0 }, lt: 0, rt: 0 }
+    }
+
+    function clampAxis(value) {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return 0
+      return Math.max(-1, Math.min(1, number))
+    }
+
+    function clamp01(value) {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return 0
+      return Math.max(0, Math.min(1, number))
+    }
+
+    function cloneGamepad(state) {
+      const source = state ?? {}
+      const buttons = {}
+      for (const name of GP_BUTTONS) buttons[name] = source.buttons?.[name] === true
+      return {
+        buttons,
+        lstick: { x: clampAxis(source.lstick?.x), y: clampAxis(source.lstick?.y) },
+        rstick: { x: clampAxis(source.rstick?.x), y: clampAxis(source.rstick?.y) },
+        lt: clamp01(source.lt),
+        rt: clamp01(source.rt),
+      }
+    }
+
+    function mergeGamepad(base, patch) {
+      const next = cloneGamepad(base)
+      if (patch.buttons !== undefined) {
+        for (const [key, value] of Object.entries(patch.buttons)) {
+          if (GP_BUTTONS.includes(key)) next.buttons[key] = value === true
+        }
+      }
+      if (patch.lstick !== undefined) next.lstick = { x: clampAxis(patch.lstick.x), y: clampAxis(patch.lstick.y) }
+      if (patch.rstick !== undefined) next.rstick = { x: clampAxis(patch.rstick.x), y: clampAxis(patch.rstick.y) }
+      if (patch.lt !== undefined) next.lt = clamp01(patch.lt)
+      if (patch.rt !== undefined) next.rt = clamp01(patch.rt)
+      return next
+    }
+
+    // 手柄素材直接取自 gamepadtester.cn 的控制器 SVG；这里给出各控件的点击/高亮坐标。
+    const GP_ASSET_LAYOUT = {
+      xbox: {
+        view: [441, 383],
+        maxWidth: 440,
+        sticks: { lstick: [113, 160, 40], rstick: [278, 238, 40] },
+        dpad: [166, 238, 44],
+        face: { a: [330, 181], b: [348, 161], x: [310, 162], y: [329, 140], r: 17 },
+        buttons: { lb: [114, 64, 48, 22], rb: [279, 64, 48, 22], back: [188, 162, 15], start: [253, 162, 15], guide: [220, 125, 20] },
+        triggers: { lt: [114, 10, 46, 56], rt: [281, 10, 46, 56] },
+      },
+      ps: {
+        view: [128, 128],
+        maxWidth: 300,
+        sticks: { lstick: [45.5, 64.5, 12], rstick: [82.5, 64.5, 12] },
+        dpad: [29, 48, 14],
+        face: { a: [99, 56], b: [107, 48], x: [91, 48], y: [99, 40], r: 7 },
+        buttons: { lb: [12, 24, 32, 14], rb: [84, 24, 32, 14], back: [58, 62, 7], start: [70, 62, 7], guide: [64, 40, 15] },
+        triggers: { lt: [18, 4, 26, 18], rt: [84, 4, 26, 18] },
+      },
+      switch: {
+        view: [400, 250],
+        maxWidth: 520,
+        sticks: { lstick: [95, 85, 20], rstick: [275, 155, 20] },
+        dpad: [95, 155, 34],
+        face: { a: [292, 85], b: [275, 102], x: [275, 68], y: [258, 85], r: 9 },
+        buttons: { back: [104, 43, 8], start: [254, 39, 8], guide: [260, 200, 9] },
+        triggers: {},
+      },
+    }
+
+    /** 手柄：底图用 gamepadtester.cn 的 SVG 素材，上面盖一层透明的点击/高亮。 */
+    function GamepadPad({ state, disabled, source, via, type, onChange, onReset, onTypeChange }) {
+      const pad = state ?? emptyGamepad()
+      const layout = gamepadFaceLayout(type)
+      const cfg = GP_ASSET_LAYOUT[type] ?? GP_ASSET_LAYOUT.xbox
+      const [VW, VH] = cfg.view
+      const dragRef = React.useRef(undefined)
+      const accent = 'var(--dsw-alias-accent, #3b82f6)'
+      const pressed = (name) => pad.buttons?.[name] === true
+      const faceColor = (name) => {
+        for (const key of ['top', 'bottom', 'left', 'right']) {
+          if (layout[key]?.name === name) return layout[key].color
+        }
+        return accent
+      }
+
+      const toView = (event) => {
+        const svg = event.currentTarget.ownerSVGElement
+        if (svg === null || svg === undefined) return undefined
+        const rect = svg.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return undefined
+        return {
+          x: ((event.clientX - rect.left) / rect.width) * VW,
+          y: ((event.clientY - rect.top) / rect.height) * VH,
+        }
+      }
+
+      const buttonHandlers = (name) => ({
+        onPointerDown: (event) => {
+          if (disabled) return
+          event.preventDefault()
+          try {
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          } catch {
+            // 忽略
+          }
+          onChange({ buttons: { [name]: true } }, { final: true })
+        },
+        onPointerUp: () => !disabled && onChange({ buttons: { [name]: false } }, { final: true }),
+        onPointerCancel: () => !disabled && onChange({ buttons: { [name]: false } }, { final: true }),
+        onPointerLeave: () => !disabled && onChange({ buttons: { [name]: false } }, { final: true }),
+      })
+
+      const triggerHandlers = (which) => ({
+        onPointerDown: (event) => {
+          if (disabled) return
+          event.preventDefault()
+          try {
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          } catch {
+            // 忽略
+          }
+          onChange({ [which]: 1 }, { final: true })
+        },
+        onPointerUp: () => !disabled && onChange({ [which]: 0 }, { final: true }),
+        onPointerCancel: () => !disabled && onChange({ [which]: 0 }, { final: true }),
+        onPointerLeave: () => !disabled && onChange({ [which]: 0 }, { final: true }),
+      })
+
+      const stick = (which) => {
+        const spec = cfg.sticks[which]
+        if (spec === undefined) return null
+        const [cx, cy, radius] = spec
+        const vector = pad[which] ?? { x: 0, y: 0 }
+        const knobX = cx + clampAxis(vector.x) * radius * 0.5
+        const knobY = cy - clampAxis(vector.y) * radius * 0.5
+        const active = Math.hypot(vector.x, vector.y) > 0.12
+        const point = (event) => {
+          const view = toView(event)
+          if (view === undefined) return
+          let dx = (view.x - cx) / radius
+          let dy = (view.y - cy) / radius
+          const magnitude = Math.hypot(dx, dy)
+          if (magnitude > 1) {
+            dx /= magnitude
+            dy /= magnitude
+          }
+          onChange({ [which]: { x: Math.round(dx * 100) / 100, y: Math.round(-dy * 100) / 100 } }, { final: false })
+        }
+        return h(
+          'g',
+          { key: which },
+          active
+            ? h('circle', { cx: knobX, cy: knobY, r: radius * 0.42, fill: accent, opacity: 0.6, style: { pointerEvents: 'none' } })
+            : null,
+          h('circle', {
+            cx,
+            cy,
+            r: radius + 8,
+            fill: 'transparent',
+            style: { cursor: disabled ? 'default' : 'grab' },
+            onPointerDown: (event) => {
+              if (disabled) return
+              event.preventDefault()
+              try {
+                event.currentTarget.setPointerCapture?.(event.pointerId)
+              } catch {
+                // 忽略
+              }
+              dragRef.current = which
+              point(event)
+            },
+            onPointerMove: (event) => {
+              if (dragRef.current !== which) return
+              event.preventDefault()
+              point(event)
+            },
+            onPointerUp: () => {
+              if (dragRef.current !== which) return
+              dragRef.current = undefined
+              onChange({ [which]: { x: 0, y: 0 } }, { final: true })
+            },
+            onPointerCancel: () => {
+              if (dragRef.current !== which) return
+              dragRef.current = undefined
+              onChange({ [which]: { x: 0, y: 0 } }, { final: true })
+            },
+          }),
+        )
+      }
+
+      const face = (name) => {
+        const spec = cfg.face[name]
+        if (spec === undefined) return null
+        const [cx, cy] = spec
+        const radius = cfg.face.r
+        const on = pressed(name)
+        return h(
+          'g',
+          { key: name },
+          on ? h('circle', { cx, cy, r: radius, fill: faceColor(name), opacity: 0.62, style: { pointerEvents: 'none' } }) : null,
+          h('circle', { cx, cy, r: radius + 5, fill: 'transparent', style: { cursor: disabled ? 'default' : 'pointer' }, ...buttonHandlers(name) }),
+        )
+      }
+
+      const dpad = () => {
+        const [cx, cy, step] = cfg.dpad
+        const offset = step * 0.5
+        const radius = step * 0.44
+        const dirs = {
+          up: [cx, cy - offset],
+          down: [cx, cy + offset],
+          left: [cx - offset, cy],
+          right: [cx + offset, cy],
+        }
+        return h(
+          'g',
+          { key: 'dpad' },
+          ...Object.entries(dirs).map(([name, [x, y]]) =>
+            h(
+              'g',
+              { key: name },
+              pressed(name) ? h('circle', { cx: x, cy: y, r: radius, fill: accent, opacity: 0.55, style: { pointerEvents: 'none' } }) : null,
+              h('circle', { cx: x, cy: y, r: radius + 6, fill: 'transparent', style: { cursor: disabled ? 'default' : 'pointer' }, ...buttonHandlers(name) }),
+            ),
+          ),
+        )
+      }
+
+      const genericButton = (name) => {
+        const spec = cfg.buttons?.[name]
+        if (spec === undefined) return null
+        const on = pressed(name)
+        if (spec.length === 4) {
+          const [x, y, w, h2] = spec
+          return h(
+            'g',
+            { key: name },
+            on ? h('rect', { x, y, width: w, height: h2, rx: 6, fill: accent, opacity: 0.45, style: { pointerEvents: 'none' } }) : null,
+            h('rect', { x, y, width: w, height: h2, fill: 'transparent', style: { cursor: disabled ? 'default' : 'pointer' }, ...buttonHandlers(name) }),
+          )
+        }
+        const [cx, cy, radius] = spec
+        return h(
+          'g',
+          { key: name },
+          on ? h('circle', { cx, cy, r: radius, fill: accent, opacity: 0.55, style: { pointerEvents: 'none' } }) : null,
+          h('circle', { cx, cy, r: radius + 5, fill: 'transparent', style: { cursor: disabled ? 'default' : 'pointer' }, ...buttonHandlers(name) }),
+        )
+      }
+
+      const trigger = (which) => {
+        const spec = cfg.triggers?.[which]
+        if (spec === undefined) return null
+        const [x, y, w, h2] = spec
+        const value = clamp01(pad[which])
+        return h(
+          'g',
+          { key: which },
+          value > 0.02 ? h('rect', { x, y, width: w, height: h2, rx: 8, fill: accent, opacity: 0.15 + value * 0.45, style: { pointerEvents: 'none' } }) : null,
+          h('rect', { x, y, width: w, height: h2, fill: 'transparent', style: { cursor: disabled ? 'default' : 'pointer' }, ...triggerHandlers(which) }),
+        )
+      }
+
+      const statusText = disabled ? '无设备' : via === 'uhid' ? 'UHID 已连接' : via === 'keyevent' ? 'adb 按键回退（无摇杆）' : via === 'idle' ? '等待输入' : '未连接实时画面'
+
+      return h(
+        'div',
+        { style: S.gamepadWrap },
+        h(
+          'div',
+          { style: S.gamepadHead },
+          h('span', { style: { fontWeight: 600 } }, '手柄'),
+          h('span', { style: S.chip(via === 'uhid') }, statusText),
+          h(
+            'select',
+            {
+              style: S.device,
+              value: type ?? 'xbox',
+              title: '手柄类型',
+              onChange: (event) => onTypeChange?.(event.target.value),
+            },
+            GP_TYPE_OPTIONS.map((option) => h('option', { key: option.id, value: option.id }, option.label)),
+          ),
+          h('span', { style: { flex: 1 } }),
+          h('span', { style: { opacity: 0.62 } }, source === 'ai' ? 'AI 输入' : source === 'manual' ? '手动输入' : ''),
+          h('button', { type: 'button', style: S.btn, onClick: () => onReset?.() }, '复位'),
+        ),
+        h(
+          'div',
+          { style: { position: 'relative', width: '100%', maxWidth: cfg.maxWidth, margin: '0 auto' } },
+          h('img', {
+            src: `${API}/gamepad.svg?type=${encodeURIComponent(type ?? 'xbox')}`,
+            alt: '手柄',
+            draggable: false,
+            style: { width: '100%', display: 'block', userSelect: 'none', pointerEvents: 'none' },
+          }),
+          h(
+            'svg',
+            {
+              viewBox: `0 0 ${VW} ${VH}`,
+              style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', touchAction: 'none', userSelect: 'none' },
+              role: 'img',
+              'aria-label': '手柄',
+            },
+            stick('lstick'),
+            stick('rstick'),
+            dpad(),
+            face('a'),
+            face('b'),
+            face('x'),
+            face('y'),
+            trigger('lt'),
+            trigger('rt'),
+            genericButton('lb'),
+            genericButton('rb'),
+            genericButton('back'),
+            genericButton('start'),
+            genericButton('guide'),
+          ),
+        ),
+        h('div', { style: S.gamepadHint }, disabled ? '接上设备并打开实时画面后才能用手柄。' : '点击 / 拖动即可操作；AI 用手柄时这里会同步显示。'),
+        h(
+          'div',
+          { style: { ...S.gamepadHint, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' } },
+          `L(${pad.lstick.x.toFixed(2)}, ${pad.lstick.y.toFixed(2)})  R(${pad.rstick.x.toFixed(2)}, ${pad.rstick.y.toFixed(2)})  LT ${pad.lt.toFixed(2)}  RT ${pad.rt.toFixed(2)}`,
+        ),
+      )
+    }
+
     // ── Tab1 界面 ──────────────────────────────────────────────────────────
     function ScreenTab({ state }) {
       const canvasRef = React.useRef(null)
@@ -696,6 +1083,12 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [fps, setFps] = React.useState(0)
+      const [showGamepad, setShowGamepad] = React.useState(false)
+      const [gamepadState, setGamepadState] = React.useState(emptyGamepad)
+      const gamepadRef = React.useRef(emptyGamepad())
+      const [gamepadSource, setGamepadSource] = React.useState('')
+      const [gamepadVia, setGamepadVia] = React.useState('')
+      const [gamepadType, setGamepadType] = React.useState('xbox')
 
       const setModeBoth = (next) => {
         modeRef.current = next
@@ -829,6 +1222,19 @@ window.__ModuleLoader__.load({
                 setError('')
                 configureDecoder(message)
               } else if (message.type === 'status' && message.running === false && message.error) setError(message.error)
+              else if (message.type === 'gamepad') {
+                const next = cloneGamepad(message.gamepad ?? message.state)
+                gamepadRef.current = next
+                setGamepadState(next)
+                setGamepadVia(String(message.via ?? ''))
+                if (typeof message.gamepadType === 'string') setGamepadType(message.gamepadType)
+                if (message.source === 'ai') {
+                  setGamepadSource('ai')
+                  setShowGamepad(true)
+                } else if (message.source === 'manual') {
+                  setGamepadSource('manual')
+                }
+              }
             } catch {
               // 忽略非 JSON
             }
@@ -914,6 +1320,21 @@ window.__ModuleLoader__.load({
       }, [])
 
       React.useEffect(() => {
+        // 面板轮询到的服务端手柄状态（AI 驱动时即使 WS 断了也能看到）。
+        const info = state?.gamepad
+        if (info === undefined || info === null) return
+        if (info.state !== undefined) {
+          const next = cloneGamepad(info.state)
+          gamepadRef.current = next
+          setGamepadState(next)
+        }
+        if (info.source === 'ai' || info.source === 'manual') setGamepadSource(info.source)
+        if (info.source === 'ai') setShowGamepad(true)
+        if (typeof info.type === 'string') setGamepadType(info.type)
+        setGamepadVia(info.uhid === true ? 'uhid' : info.controlReady === true ? 'idle' : 'none')
+      }, [state?.gamepad?.updatedAt])
+
+      React.useEffect(() => {
         if (state?.selectedSerial) void startVideo()
         else stopAll()
         return () => {
@@ -928,6 +1349,64 @@ window.__ModuleLoader__.load({
         const result = await requestJson(`${API}/command`, { action, serial: state?.selectedSerial, ...extra })
         if (result?.ok !== true) setError(result?.error ?? '操作失败')
         return result
+      }
+
+      /** 手柄输入：优先走已建立的视频 WebSocket，没有流时退回 HTTP（只发离散操作）。 */
+      const sendGamepad = (next, opts = {}) => {
+        const ws = wsRef.current
+        if (ws !== undefined && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'gamepad', gamepad: next, source: 'manual' }))
+            return
+          } catch {
+            // 忽略，退回 HTTP
+          }
+        }
+        if (opts.final !== false) void post('gamepad', { gamepad: next, source: 'manual', capture: false })
+      }
+
+      const commitGamepad = (patch, opts = {}) => {
+        const next = mergeGamepad(gamepadRef.current, patch)
+        gamepadRef.current = next
+        setGamepadState(next)
+        setGamepadSource('manual')
+        sendGamepad(next, opts)
+      }
+
+      const resetGamepad = () => {
+        const next = emptyGamepad()
+        gamepadRef.current = next
+        setGamepadState(next)
+        setGamepadSource('manual')
+        const ws = wsRef.current
+        if (ws !== undefined && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'gamepadReset' }))
+            return
+          } catch {
+            // 忽略
+          }
+        }
+        void post('gamepadReset', {})
+      }
+
+      /** 切换手柄类型（xbox / ps / switch）。设备端会按新身份重建 UHID。 */
+      const changeGamepadType = (nextType) => {
+        setGamepadType(nextType)
+        const next = emptyGamepad()
+        gamepadRef.current = next
+        setGamepadState(next)
+        setGamepadSource('manual')
+        const ws = wsRef.current
+        if (ws !== undefined && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'gamepadType', gamepadType: nextType }))
+            return
+          } catch {
+            // 忽略
+          }
+        }
+        void post('gamepadType', { gamepadType: nextType })
       }
 
       const canvasPoint = (event) => {
@@ -1011,6 +1490,11 @@ window.__ModuleLoader__.load({
           h('button', { style: S.btn, onClick: () => void post('key', { key: 'back' }) }, '返回'),
           h('button', { style: S.btn, onClick: () => void post('key', { key: 'home' }) }, '主页'),
           h('button', { style: S.btn, onClick: () => void post('key', { key: 'wakeup' }) }, '亮屏'),
+          h(
+            'button',
+            { style: showGamepad ? { ...S.btn, ...S.tabActive } : S.btn, title: '显示 / 隐藏手柄', onClick: () => setShowGamepad((value) => !value) },
+            '手柄',
+          ),
           h('span', { style: { flex: 1 } }),
           h('button', { style: busy ? { ...S.btn, ...S.btnDisabled } : S.btn, disabled: busy, onClick: () => void startVideo() }, '重连画面'),
           state?.adb?.scrcpyExists === true
@@ -1041,6 +1525,18 @@ window.__ModuleLoader__.load({
                 h('div', { style: { marginTop: 6, opacity: 0.72 } }, '连接后这里会显示画面；点画面可以直接触控。'),
               ),
         ),
+        showGamepad
+          ? h(GamepadPad, {
+              state: gamepadState,
+              disabled: !state?.selectedSerial,
+              source: gamepadSource,
+              via: gamepadVia,
+              type: gamepadType,
+              onChange: commitGamepad,
+              onReset: resetGamepad,
+              onTypeChange: changeGamepadType,
+            })
+          : null,
         h(
           'div',
           { style: S.statusBar },

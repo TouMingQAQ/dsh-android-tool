@@ -76,3 +76,56 @@ test('feed 处理半包', () => {
   assert.equal(client.frames.length, 0)
   // 半包不会抛，等 session packet 到齐才发 meta
 })
+
+test('setGamepad 先发 UHID_CREATE 再发 UHID_INPUT，并广播手柄状态', () => {
+  const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
+  stream.width = 100
+  stream.height = 100
+  const writes = []
+  stream.controlSocket = { destroyed: false, write(buffer) { writes.push(Buffer.from(buffer)) } }
+  const client = { texts: [], sendText(t) { this.texts.push(t) }, sendBinary() {} }
+  stream.clients.add(client)
+
+  const ok = stream.setGamepad({ buttons: ['a', 'up'], lstick: { x: 1, y: 0 } }, { source: 'ai' })
+  assert.equal(ok, true)
+  assert.equal(writes.length, 2)
+  assert.equal(writes[0][0], 12) // UHID_CREATE2
+  assert.equal(writes[1][0], 13) // UHID_INPUT2
+  const report = writes[1].subarray(5) // type(1)+id(2)+len(2)+data
+  assert.equal(report.length, 15)
+  assert.equal(report.readUInt16LE(0), 0xffff) // 左摇杆 x 最右
+  assert.equal(report[14], 1) // hat 上
+
+  const texts = client.texts.map((text) => JSON.parse(text))
+  const gamepad = texts.find((item) => item.type === 'gamepad')
+  assert.ok(gamepad !== undefined)
+  assert.equal(gamepad.source, 'ai')
+  assert.equal(gamepad.gamepad.buttons.a, true)
+  assert.equal(gamepad.gamepad.buttons.up, true)
+
+  stream.destroyGamepad()
+  assert.equal(writes[writes.length - 1][0], 14) // UHID_DESTROY
+  assert.equal(stream.gamepad.created, false)
+})
+
+test('setGamepadType 按新类型重建 UHID（PS 的 VID/PID）', () => {
+  const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
+  const writes = []
+  stream.controlSocket = { destroyed: false, write(buffer) { writes.push(Buffer.from(buffer)) } }
+  stream.clients.add({ texts: [], sendText() {}, sendBinary() {} })
+
+  stream.setGamepad({ buttons: ['a'] }, { source: 'manual' })
+  assert.equal(writes[0][0], 12)
+  // id(2) 后是 vendorId（大端）
+  assert.equal(writes[0].readUInt16BE(3), 0x045e)
+
+  stream.setGamepadType('ps')
+  const create = writes.filter((buffer) => buffer[0] === 12)
+  assert.equal(create.length, 2)
+  const psCreate = create[1]
+  assert.equal(psCreate.readUInt16BE(3), 0x054c) // Sony
+  assert.equal(psCreate.readUInt16BE(5), 0x0ce6) // DualSense
+  assert.equal(stream.gamepad.type, 'ps')
+})
+
+

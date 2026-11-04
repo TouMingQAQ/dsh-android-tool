@@ -3,7 +3,8 @@
 把 Android 设备接进 DSH 工作台：
 
 - **设置 → 安卓调试**：配置 adb / scrcpy 路径、无线调试（配对 / 连接 / 断开）、当前调试设备与视频/日志偏好。
-- **右侧 Sidebar → 安卓设备**：顶部五个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK。
+- **右侧 Sidebar → 安卓设备**：顶部五个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK；「界面」里还能展开一个可点击 / 拖动的虚拟手柄。
+- **手柄模式**：AI 可用 `android_control action=gamepad` 通过 scrcpy UHID 注入虚拟手柄（摇杆、扳机、方向键、ABXY），可选 **XBox / PlayStation / Nintendo Switch** 三种类型（VID/PID、名字与 NS 的 A/B/X/Y 换位都跟着变），面板会画出当前手柄输入；没有实时画面时自动回退到 adb 按键。
 - **AAB → APK**：把 `.aab` 转成已签名、可直接安装的 `.apk`（bundletool → zipalign → apksigner），复刻 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的完整流程。
 - **给 AI 的五个工具**：`android_view`、`android_state`、`android_control`、`android_adb`、`android_aab2apk`。
 
@@ -74,6 +75,7 @@ fetch-retry-maxtimeout=120000
 - `VideoDecoder` 不可用或推流失败时自动回退到 **adb 截图轮询**（默认 3fps），功能不中断。
 - 画布点击 = tap；鼠标拖动时通过现有视频 WebSocket 实时发送 `touch down/move/up`（约 60Hz），不是松手后才补一个 swipe，所以拖动手感跟手；按钮可调音量 ±、返回、主页、亮屏。
 - 触控走 scrcpy **control socket**（`@yume-chan/scrcpy` 序列化），不是每次 `adb shell input`，实测一次控制往返约 20–30ms；流没开时才回退 adb。
+- **手柄**：工具栏点「手柄」会展开一个手柄，标题栏可切 **XBox / PlayStation / Nintendo Switch**（三种底图直接取自 [gamepadtester.cn](https://www.gamepadtester.cn/) 的控制器 SVG，设备端 VID/PID/名字也按类型重建）。鼠标 / 触摸直接点按钮、拖摇杆、按扳机，输入通过 control socket 的 UHID 通道注入设备；AI 用手柄时这里会同步高亮当前按键与摇杆位置。手柄需要实时推流（UHID），推流不可用时按钮退化为 adb `keyevent` 点按，摇杆/扳机不可用。
 - 「打开 scrcpy 窗口」在设置了本机 `scrcpy.exe` 路径后启动独立窗口；精简包默认不带，按钮会自动隐藏。
 
 ### Logcat
@@ -118,7 +120,7 @@ fetch-retry-maxtimeout=120000
 |---|---|
 | `android_view` | 截图当前画面并以图片返回给模型，同时更新侧边栏画面；附带型号/当前包名/Activity/分辨率。 |
 | `android_state` | 查看设备参数：型号、Android 版本、电量、WiFi、内存、存储、屏幕、当前应用。 |
-| `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app，默认操作后回一张截图。 |
+| `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app / gamepad，默认操作后回一张截图（手柄默认不截图）。`gamepad` 用 scrcpy UHID 注入虚拟手柄：`buttons`（a/b/x/y/lb/rb/back/start/guide/lstick/rstick/up/down/left/right）、`lstick`/`rstick`（x/y 各 -1..1，y 向上为正）、`lt`/`rt`（0..1）、`gamepadType`（xbox/ps/switch）、`merge`、`holdMs`。 |
 | `android_adb` | 最后兜底：用配置的 adb 执行任意命令，返回 stdout/stderr/退出码。 |
 | `android_aab2apk` | 把 `.aab` 转成已签名 `.apk`，返回输出路径、大小、耗时、包名/版本与工具输出尾巴。 |
 
@@ -146,6 +148,8 @@ fetch-retry-maxtimeout=120000
 - **AAB → APK 依赖外部工具**：需要 Java（JDK 11+）和 Android SDK Build-Tools；`bundletool-all.jar` 已随包（`tools/`），缺 Java/SDK 时会在「检测工具」里提示。
 - **GPU**：Android 没有统一 GPU 占用接口，不同 SoC 的 sysfs 不一样；读不到时明确显示不可用。
 - **中文输入**：实时流下走 scrcpy control，支持 Unicode；只有回退到 `adb shell input text` 时才只支持 ASCII。
+- **手柄依赖 UHID**：摇杆 / 扳机 / 按住按键都通过 scrcpy 的 UHID 通道，需要实时推流（scrcpy-server 5.0.1，control=true）；推流不可用时自动退回 adb `keyevent`，只能点按、无法按住或摇杆。部分系统对 `/dev/uhid` 权限收紧时 UHID 会失败，此时同样退回 keyevent。
+- **手柄类型是身份级**：XBox / PlayStation / Nintendo Switch 共用同一份通用 HID 报告描述符，只切换 VID/PID/名字和 NS 的 A/B/X/Y 换位；各家原生特性（DualSense 自适应扳机、Switch HD 震动等）不会生效。
 - **首次启动无设备**：插件正常加载，界面给出空状态；真机联调需要先连接设备或配置无线调试。
 - **scrcpy 协议随版本变化**：本插件绑定随包的 `scrcpy-server 5.0.1`，升级 scrcpy 目录时需要同步更新协议解析。
 - **安全**：`android_adb` 能执行任意 adb 命令，仅建议在本地 DSH GUI 使用。

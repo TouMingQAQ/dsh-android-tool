@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTools } from '../lib/tools.js'
+import { buildTools, cleanValue } from '../lib/tools.js'
 
 function fakeService() {
   const calls = []
@@ -76,3 +76,37 @@ test('图片 render 会附上 image block', () => {
   assert.equal(blocks[1].type, 'image')
   assert.equal(blocks[1].attachment.attachmentId, 'a1')
 })
+
+test('android_control 手柄：透传按钮/摇杆且默认不截图', async () => {
+  const service = fakeService()
+  const tool = buildTools({ service }).find((item) => item.name === 'android_control')
+  await tool.execute({ action: 'gamepad', buttons: ['a', 'up'], lstick: { x: 1, y: 0 }, holdMs: 80, gamepadType: 'switch' })
+  const input = service.calls[0].input
+  assert.equal(input.action, 'gamepad')
+  assert.deepEqual(input.buttons, ['a', 'up'])
+  assert.deepEqual(input.lstick, { x: 1, y: 0 })
+  assert.equal(input.holdMs, 80)
+  assert.equal(input.gamepadType, 'switch')
+  assert.equal(input.capture, false)
+})
+
+test('cleanValue 递归去掉 undefined 并把非有限数字变成 null', () => {
+  assert.deepEqual(cleanValue({ a: 1, b: undefined, c: { d: undefined, e: 2 }, f: [1, undefined, 3], g: Number.NaN }), {
+    a: 1,
+    c: { e: 2 },
+    f: [1, 3],
+    g: null,
+  })
+})
+
+test('工具输出自动剔除 undefined（修复 lossless JSON 报错）', async () => {
+  const service = {
+    screencapture: async () => ({ ok: true, width: 10, height: 20, path: undefined, image: undefined, nested: { x: undefined, y: 1 } }),
+  }
+  const tool = buildTools({ service }).find((item) => item.name === 'android_view')
+  const value = await tool.execute({})
+  assert.deepEqual(value, { ok: true, width: 10, height: 20, nested: { y: 1 } })
+  assert.equal(Object.hasOwn(value, 'path'), false)
+})
+
+

@@ -1,7 +1,7 @@
 {
   "name": "dsh-android-tool",
-  "version": "0.2.2",
-  "description": "把 Android 设备接进 DSH：设置页配置无线调试与 adb，右侧五 Tab 看画面 / Logcat / 性能 / 指令 / AAB→APK，并给 AI android_view / android_state / android_control / android_adb / android_aab2apk 五个工具",
+  "version": "0.2.3",
+  "description": "把 Android 设备接进 DSH：设置页配置无线调试与 adb，右侧五 Tab 看画面 / Logcat / 性能 / 指令 / AAB→APK（界面里含可点击/AI 驱动的虚拟手柄），并给 AI android_view / android_state / android_control / android_adb / android_aab2apk 五个工具",
   "private": false,
   "type": "module",
   "main": "index.js",

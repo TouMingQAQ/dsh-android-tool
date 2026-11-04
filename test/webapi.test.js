@@ -116,6 +116,22 @@ test('未知路由 404；非 GET/POST 方法 405', async () => {
   assert.equal(put.statusCode, 405)
 })
 
+test('gamepad.svg 按 type 返回对应素材', async () => {
+  const server = fakeServer()
+  registerWebRoutes(server, { service: { pluginRoot: process.cwd(), uiState: async () => ({ ok: true }) } })
+  const handler = server.calls.http[0].handler
+  for (const type of ['xbox', 'ps', 'switch']) {
+    const res = fakeResponse()
+    await handler(fakeRequest('GET', `${WEB_ROUTES.gamepadSvg}?type=${type}`), res)
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-type'], 'image/svg+xml; charset=utf-8')
+    assert.match(Buffer.from(res.body).toString('utf8'), /<svg/u)
+  }
+  const missing = fakeResponse()
+  await handler(fakeRequest('GET', `${WEB_ROUTES.gamepadSvg}?type=unknown`), missing)
+  assert.equal(missing.statusCode, 200) // unknown 回退到 xbox
+})
+
 test('aab2apk config / 保存 / 浏览 / 任务路由', async () => {
   const root = await mkdtemp(join(tmpdir(), 'aab2apk-web-'))
   try {

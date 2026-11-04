@@ -23,6 +23,15 @@ test('五 Tab 与 WebCodecs 都在', () => {
   assert.match(source, /video\.ws/u)
 })
 
+test('手柄绘制与 WebSocket 手柄消息都在', () => {
+  assert.match(source, /GamepadPad/u)
+  assert.match(source, /type: 'gamepad'/u)
+  assert.match(source, /gamepadReset/u)
+  assert.match(source, /gamepad\.svg/u)
+  assert.match(source, /Nintendo Switch/u)
+  assert.match(source, /gamepadType/u)
+})
+
 test('AAB→APK 客户端接了配置/检测/转换/任务路由', () => {
   for (const route of ['aab2apk/config', 'aab2apk/detect', 'aab2apk/convert', 'aab2apk/job', 'aab2apk/cancel', 'aab2apk/browse']) {
     assert.match(source, new RegExp(route.replace('/', '\\/'), 'u'))
