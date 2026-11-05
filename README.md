@@ -137,6 +137,8 @@ fetch-retry-maxtimeout=120000
 | `videoMaxSize` | 720 | scrcpy 最大边 |
 | `videoBitRate` | 2500000 | scrcpy 视频码率 |
 | `videoFps` | 30 | scrcpy 最大帧率 |
+| `videoEncoder` | 空 | 指定 MediaCodec 视频编码器；留空 = 自动。MIUI 卡顿时可填设备硬件编码器名 |
+| `videoCodecOptions` | 空 | scrcpy `video_codec_options`，如 `i-frame-interval:float=1`（关键帧间隔 1 秒，弱网/卡顿恢复更快） |
 | `previewFps` | 3 | 截图回退模式帧率 |
 | `logcatMaxLines` | 5000 | 服务端日志环形缓冲 |
 | `adbTimeoutMs` | 15000 | adb 默认超时 |
@@ -148,6 +150,7 @@ fetch-retry-maxtimeout=120000
 - **AAB → APK 依赖外部工具**：需要 Java（JDK 11+）和 Android SDK Build-Tools；`bundletool-all.jar` 已随包（`tools/`），缺 Java/SDK 时会在「检测工具」里提示。
 - **GPU**：Android 没有统一 GPU 占用接口，不同 SoC 的 sysfs 不一样；读不到时明确显示不可用。
 - **中文输入**：实时流下走 scrcpy control，支持 Unicode；只有回退到 `adb shell input text` 时才只支持 ASCII。
+- **视频卡顿 / 延迟（不同厂商差异大）**：ColorOS 流畅、MIUI 卡顿很常见，通常是设备编码器或无线 ADB 链路导致。可在「设置 → 安卓调试」里降低 `videoMaxSize`（如 540）、`videoBitRate`（1.5–2 Mbps），或把 `videoCodecOptions` 填 `i-frame-interval:float=1`；必要时用 `videoEncoder` 指定硬件编码器。`/x-android-tool/state.json` 的 `stream.serverLog` 能看到 scrcpy 最终使用的编码器与报错。
 - **手柄依赖 UHID**：摇杆 / 扳机 / 按住按键都通过 scrcpy 的 UHID 通道，需要实时推流（scrcpy-server 5.0.1，control=true）；推流不可用时自动退回 adb `keyevent`，只能点按、无法按住或摇杆。部分系统对 `/dev/uhid` 权限收紧时 UHID 会失败，此时同样退回 keyevent。
 - **手柄类型是身份级**：XBox / PlayStation / Nintendo Switch 共用同一份通用 HID 报告描述符，只切换 VID/PID/名字和 NS 的 A/B/X/Y 换位；各家原生特性（DualSense 自适应扳机、Switch HD 震动等）不会生效。
 - **首次启动无设备**：插件正常加载，界面给出空状态；真机联调需要先连接设备或配置无线调试。

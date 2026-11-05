@@ -128,4 +128,30 @@ test('setGamepadType 按新类型重建 UHID（PS 的 VID/PID）', () => {
   assert.equal(stream.gamepad.type, 'ps')
 })
 
+test('慢客户端积压时丢非关键帧，关键帧恢复', () => {
+  const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
+  const client = {
+    texts: [],
+    frames: [],
+    bufferedAmount: 300 * 1024,
+    sendText(t) { this.texts.push(t) },
+    sendBinary(b) { this.frames.push(b) },
+  }
+  stream.clients.add(client)
+  const delta = Buffer.alloc(19)
+  delta[0] = 0
+  const key = Buffer.alloc(19)
+  key[0] = 1
+  stream.broadcastBinary(delta)
+  assert.equal(client.frames.length, 0)
+  stream.broadcastBinary(delta)
+  assert.equal(client.frames.length, 0)
+  stream.broadcastBinary(key)
+  assert.equal(client.frames.length, 1)
+  client.bufferedAmount = 0
+  stream.broadcastBinary(delta)
+  assert.equal(client.frames.length, 2)
+})
+
+
 

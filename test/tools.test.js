@@ -32,6 +32,25 @@ test('buildTools 返回五个工具且名字唯一', () => {
   }
 })
 
+test('工具参数 schema 是合法 JSON Schema（required 必须是字符串数组）', () => {
+  const tools = buildTools({ service: fakeService() })
+  const walk = (schema, path) => {
+    assert.equal(typeof schema, 'object', `${path} 应为对象`)
+    if ('required' in schema) {
+      assert.ok(Array.isArray(schema.required), `${path}.required 必须是数组，实际是 ${typeof schema.required}`)
+      for (const key of schema.required) {
+        assert.equal(typeof key, 'string', `${path}.required 内必须都是字符串`)
+        assert.ok(schema.properties && key in schema.properties, `${path}.required 的 ${key} 不在 properties 中`)
+      }
+    }
+    for (const [key, value] of Object.entries(schema.properties ?? {})) {
+      walk(value, `${path}.properties.${key}`)
+    }
+    if (schema.items) walk(schema.items, `${path}.items`)
+  }
+  for (const tool of tools) walk(tool.parameters, tool.name)
+})
+
 test('android_view 默认 includeState 并标记', async () => {
   const service = fakeService()
   const tool = buildTools({ service }).find((item) => item.name === 'android_view')

@@ -16,6 +16,8 @@ test('snapshotConfig 空对象给出默认值', () => {
   assert.equal(value.adbPath, '')
   assert.equal(value.wirelessPort, 5555)
   assert.equal(value.videoMaxSize, 720)
+  assert.equal(value.videoEncoder, '')
+  assert.equal(value.videoCodecOptions, '')
   assert.equal(value.previewFps, 3)
   assert.equal(value.autoConnect, false)
 })

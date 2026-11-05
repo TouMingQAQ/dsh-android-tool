@@ -1079,6 +1079,7 @@ window.__ModuleLoader__.load({
       const pollRef = React.useRef(undefined)
       const modeRef = React.useRef('idle')
       const pointerRef = React.useRef(undefined)
+      const dropUntilKeyRef = React.useRef(false)
       const [mode, setMode] = React.useState('idle')
       const [error, setError] = React.useState('')
       const [busy, setBusy] = React.useState(false)
@@ -1144,6 +1145,7 @@ window.__ModuleLoader__.load({
         } catch {
           // 忽略
         }
+        dropUntilKeyRef.current = false
         metaRef.current = meta
         setupCanvas(meta)
         try {
@@ -1178,8 +1180,18 @@ window.__ModuleLoader__.load({
           if (view.byteLength < 10) return
           const flags = view.getUint8(0)
           const isKey = (flags & 1) === 1
-          // 实时优先：解码积压时丢掉非关键帧，避免延迟越滚越大。
-          if (decoder.decodeQueueSize > 30 && !isKey) return
+          // 解码积压时不要零散丢 P 帧（会让后续帧花屏、等 keyframe 更久）。
+          // 一旦积压超标就停到下一个关键帧，从整段 GOP 重新开始。
+          if (dropUntilKeyRef.current) {
+            if (!isKey) return
+            dropUntilKeyRef.current = false
+          } else if (decoder.decodeQueueSize > 24) {
+            if (!isKey) {
+              dropUntilKeyRef.current = true
+              return
+            }
+            dropUntilKeyRef.current = false
+          }
           const timestamp = view.getFloat64(1)
           const payload = new Uint8Array(buffer, 9)
           decoder.decode(
@@ -1261,6 +1273,7 @@ window.__ModuleLoader__.load({
           // 忽略
         }
         decoderRef.current = undefined
+        dropUntilKeyRef.current = false
         metaRef.current = undefined
         setModeBoth('poll')
         const fps = Math.max(1, Math.min(10, Number(state?.previewFps) || 3))
@@ -2699,6 +2712,28 @@ window.__ModuleLoader__.load({
             numberField('截图模式 FPS', 'previewFps', pick('previewFps', 3), setField, { min: 1, max: 10, step: 1 }),
             numberField('Logcat 缓冲行数', 'logcatMaxLines', pick('logcatMaxLines', 5000), setField, { min: 100, max: 100000, step: 100 }),
             numberField('adb 超时 (ms)', 'adbTimeoutMs', pick('adbTimeoutMs', 15000), setField, { min: 1000, max: 120000, step: 500 }),
+          ),
+          h(
+            'div',
+            { style: S.field },
+            h('label', { style: S.fieldLabel }, h('span', null, '视频编码器'), h('span', { style: S.fieldKey }, 'videoEncoder')),
+            h('input', {
+              style: S.input,
+              value: pick('videoEncoder', ''),
+              placeholder: '留空 = 自动；小米卡顿可填硬件编码器名',
+              onChange: (event) => setField('videoEncoder', event.target.value),
+            }),
+          ),
+          h(
+            'div',
+            { style: S.field },
+            h('label', { style: S.fieldLabel }, h('span', null, '编码器参数'), h('span', { style: S.fieldKey }, 'videoCodecOptions')),
+            h('input', {
+              style: S.input,
+              value: pick('videoCodecOptions', ''),
+              placeholder: '例如 i-frame-interval:float=1',
+              onChange: (event) => setField('videoCodecOptions', event.target.value),
+            }),
           ),
           h(
             'div',
