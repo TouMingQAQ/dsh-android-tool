@@ -1269,6 +1269,14 @@ window.__ModuleLoader__.load({
           if (stopped) return
           const image = new Image()
           image.onload = () => {
+            // 截图模式下，如果 host 的推流还在（只是浏览器解码失败），控制通道仍吃视频坐标；
+            // 否则退回设备像素坐标走 adb。
+            const streamWidth = Number(state?.stream?.width) || 0
+            const streamHeight = Number(state?.stream?.height) || 0
+            metaRef.current =
+              streamWidth > 0 && streamHeight > 0
+                ? { width: streamWidth, height: streamHeight }
+                : { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height }
             ensureRenderer()?.drawImage(image)
           }
           image.onerror = () => {
@@ -1413,11 +1421,24 @@ window.__ModuleLoader__.load({
         const canvas = canvasRef.current
         const meta = metaRef.current
         if (canvas === null || meta === undefined) return undefined
+        const vw = Number(meta.width) || 0
+        const vh = Number(meta.height) || 0
+        if (!(vw > 0) || !(vh > 0)) return undefined
         const rect = canvas.getBoundingClientRect()
         if (rect.width <= 0 || rect.height <= 0) return undefined
+        // 渲染器把视频按 contain 方式 letterbox 画在画布中间；点击必须先减掉上下/左右黑边，
+        // 否则画布比视频宽时，点哪儿都会往右偏。
+        const scale = Math.min(rect.width / vw, rect.height / vh)
+        const drawWidth = vw * scale
+        const drawHeight = vh * scale
+        const offsetX = (rect.width - drawWidth) / 2
+        const offsetY = (rect.height - drawHeight) / 2
+        const insideX = event.clientX - rect.left - offsetX
+        const insideY = event.clientY - rect.top - offsetY
+        if (insideX < 0 || insideY < 0 || insideX > drawWidth || insideY > drawHeight) return undefined
         return {
-          x: Math.round(((event.clientX - rect.left) / rect.width) * meta.width),
-          y: Math.round(((event.clientY - rect.top) / rect.height) * meta.height),
+          x: Math.round(insideX / scale),
+          y: Math.round(insideY / scale),
         }
       }
 

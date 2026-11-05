@@ -38,6 +38,12 @@ test('AAB→APK 客户端接了配置/检测/转换/任务路由', () => {
   }
 })
 
+test('鼠标点击按 letterbox 内区域反算，避免横向偏移', () => {
+  assert.match(source, /const scale = Math\.min\(rect\.width \/ vw, rect\.height \/ vh\)/u)
+  assert.match(source, /const offsetX = \(rect\.width - drawWidth\) \/ 2/u)
+  assert.match(source, /insideX < 0/u)
+})
+
 test('Unity 颜色通过 segments 渲染，不用 innerHTML', () => {
   assert.match(source, /entry\.segments/u)
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/u)
