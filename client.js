@@ -833,6 +833,69 @@ window.__ModuleLoader__.load({
       const [VW, VH] = cfg.view
       const dragRef = React.useRef(undefined)
       const accent = 'var(--dsw-alias-accent, #3b82f6)'
+      const [pcEnabled, setPcEnabled] = React.useState(false)
+      const [pcId, setPcId] = React.useState('')
+      const onChangeRef = React.useRef(onChange)
+      onChangeRef.current = onChange
+
+      React.useEffect(() => {
+        if (!pcEnabled || disabled) {
+          setPcId('')
+          return undefined
+        }
+        let raf
+        let lastSent = 0
+        let lastSignature = ''
+        let hadPad = false
+        const buttonMap = { 0: 'a', 1: 'b', 2: 'x', 3: 'y', 4: 'lb', 5: 'rb', 8: 'back', 9: 'start', 10: 'lstick', 11: 'rstick', 12: 'up', 13: 'down', 14: 'left', 15: 'right', 16: 'guide' }
+        const tick = (now) => {
+          if (now - lastSent >= 40) {
+            lastSent = now
+            const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : []
+            let pad
+            for (let index = 0; index < (pads ? pads.length : 0); index += 1) {
+              if (pads[index] && pads[index].connected !== false) {
+                pad = pads[index]
+                break
+              }
+            }
+            if (pad !== undefined) {
+              hadPad = true
+              setPcId(pad.id || 'gamepad')
+              const next = emptyGamepad()
+              Object.keys(buttonMap).forEach((index) => {
+                const button = pad.buttons[Number(index)]
+                if (button && button.pressed === true) next.buttons[buttonMap[Number(index)]] = true
+              })
+              const dead = 0.08
+              const axis = (value) => (Math.abs(value) < dead ? 0 : Math.round(value * 100) / 100)
+              next.lstick = { x: axis(pad.axes[0] || 0), y: axis(-(pad.axes[1] || 0)) }
+              next.rstick = { x: axis(pad.axes[2] || 0), y: axis(-(pad.axes[3] || 0)) }
+              next.lt = Math.round(((pad.buttons[6] && pad.buttons[6].value) || 0) * 100) / 100
+              next.rt = Math.round(((pad.buttons[7] && pad.buttons[7].value) || 0) * 100) / 100
+              const signature = JSON.stringify(next)
+              if (signature !== lastSignature) {
+                lastSignature = signature
+                onChangeRef.current(next, { final: false })
+              }
+            } else {
+              setPcId('')
+              if (hadPad) {
+                hadPad = false
+                lastSignature = ''
+                onChangeRef.current(emptyGamepad(), { final: false })
+              }
+            }
+          }
+          raf = requestAnimationFrame(tick)
+        }
+        raf = requestAnimationFrame(tick)
+        return () => {
+          if (raf !== undefined) cancelAnimationFrame(raf)
+          setPcId('')
+        }
+      }, [pcEnabled, disabled])
+
       const pressed = (name) => pad.buttons?.[name] === true
       const faceColor = (name) => {
         for (const key of ['top', 'bottom', 'left', 'right']) {
@@ -1039,6 +1102,18 @@ window.__ModuleLoader__.load({
             },
             GP_TYPE_OPTIONS.map((option) => h('option', { key: option.id, value: option.id }, option.label)),
           ),
+          h(
+            'label',
+            { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, opacity: disabled ? 0.5 : 0.8 } },
+            h('input', {
+              type: 'checkbox',
+              checked: pcEnabled,
+              disabled,
+              onChange: (event) => setPcEnabled(event.target.checked),
+            }),
+            '电脑手柄',
+          ),
+          pcId.length > 0 ? h('span', { style: S.chip(true) }, '电脑手柄已连接') : null,
           h('span', { style: { flex: 1 } }),
           h('span', { style: { opacity: 0.62 } }, source === 'ai' ? 'AI 输入' : source === 'manual' ? '手动输入' : ''),
           h(
@@ -1112,6 +1187,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false)
       const [fps, setFps] = React.useState(0)
       const [showGamepad, setShowGamepad] = React.useState(false)
+      const [notice, setNotice] = React.useState('')
       const [gamepadState, setGamepadState] = React.useState(emptyGamepad)
       const gamepadRef = React.useRef(emptyGamepad())
       const [gamepadSource, setGamepadSource] = React.useState('')
@@ -1563,6 +1639,34 @@ window.__ModuleLoader__.load({
       const onPointerUp = (event) => finishPointer(event, false)
       const onPointerCancel = (event) => finishPointer(event, true)
 
+      const copyScreenshot = () => {
+        const canvas = canvasRef.current
+        if (canvas === null || canvas === undefined) {
+          setNotice('当前还没有画面')
+          return
+        }
+        try {
+          canvas.toBlob(async (blob) => {
+            if (blob === null) {
+              setNotice('截图导出失败')
+              return
+            }
+            if (navigator.clipboard === undefined || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem === 'undefined') {
+              setNotice('当前环境不支持剪贴板图片写入')
+              return
+            }
+            try {
+              await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+              setNotice('截图已复制，回到输入框按 Ctrl+V 粘贴')
+            } catch (copyError) {
+              setNotice(`复制截图失败：${copyError instanceof Error ? copyError.message : String(copyError)}`)
+            }
+          }, 'image/png')
+        } catch (copyError) {
+          setNotice(`截图导出失败：${copyError instanceof Error ? copyError.message : String(copyError)}`)
+        }
+      }
+
       const stream = state?.stream ?? {}
       const device = state?.device
       return h(
@@ -1581,6 +1685,7 @@ window.__ModuleLoader__.load({
             { style: showGamepad ? { ...S.btn, ...S.tabActive } : S.btn, title: '显示 / 隐藏手柄', onClick: () => setShowGamepad((value) => !value) },
             '手柄',
           ),
+          h('button', { style: S.btn, title: '复制当前画面到剪贴板，粘贴到输入框', onClick: copyScreenshot }, '截图到输入框'),
           h('span', { style: { flex: 1 } }),
           h('button', { style: busy ? { ...S.btn, ...S.btnDisabled } : S.btn, disabled: busy, onClick: () => void startVideo() }, '重连画面'),
           state?.adb?.scrcpyExists === true
@@ -1591,6 +1696,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         error.length > 0 ? h('div', { style: S.err }, error) : null,
+        notice.length > 0 ? h('div', { style: { fontSize: 11, opacity: 0.72, padding: '4px 10px' } }, notice) : null,
         h(
           'div',
           { style: S.screenWrap },
