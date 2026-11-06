@@ -234,6 +234,22 @@ window.__ModuleLoader__.load({
       aabDialogHead: { display: 'flex', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))' },
       aabDialogList: { flex: 1, minHeight: 0, overflow: 'auto', padding: 6 },
       aabDialogRow: { display: 'flex', gap: 8, alignItems: 'center', width: '100%', textAlign: 'left', padding: '5px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', font: 'inherit', fontSize: 12.5 },
+      modalOverlay: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
+      modal: { width: 'min(420px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', borderRadius: 12, border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.4))', background: 'var(--dsw-alias-bg-base, #1b1b1b)', color: 'inherit', overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,.5)' },
+      modalHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 12px', borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28))', fontSize: 14, fontWeight: 600 },
+      modalBody: { padding: 14, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 },
+      modalClose: { border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 15, opacity: 0.65, padding: '2px 6px', borderRadius: 6 },
+      qrBox: { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 8, background: '#fff', borderRadius: 10, minHeight: 180 },
+      qrImg: { width: 240, height: 240, maxWidth: '100%', imageRendering: 'pixelated' },
+      statusLine: (tone) => ({
+        fontSize: 12.5,
+        lineHeight: 1.6,
+        padding: '6px 9px',
+        borderRadius: 8,
+        background: 'var(--dsw-alias-fill-l2, rgba(127,127,127,.08))',
+        color: tone === 'error' ? 'var(--dsw-alias-text-warning, #c98a00)' : tone === 'ok' ? 'var(--dsw-alias-text-positive, #2e8b57)' : 'inherit',
+      }),
+      btnGhost: { border: 'none', background: 'transparent', color: 'inherit', opacity: 0.7, cursor: 'pointer', fontSize: 12, padding: '4px 2px', textDecoration: 'underline' },
     }
 
     async function requestJson(url, body) {
@@ -2520,6 +2536,10 @@ window.__ModuleLoader__.load({
       const [wire, setWire] = React.useState({ host: '', port: '5555', pairPort: '', code: '' })
       const wireTouched = React.useRef(false)
       const [actionOutput, setActionOutput] = React.useState('')
+      const [dialog, setDialog] = React.useState('') // '' | 'qr' | 'pair' | 'connect'
+      const [qr, setQr] = React.useState(undefined)
+      const [pairOutput, setPairOutput] = React.useState('')
+      const [connectOutput, setConnectOutput] = React.useState('')
 
       const current = formSnap?.value ?? {}
       const pick = (key, fallback) => (Object.hasOwn(draft, key) ? draft[key] : current[key] !== undefined ? current[key] : fallback)
@@ -2581,6 +2601,74 @@ window.__ModuleLoader__.load({
         return result
       }
 
+      // ── 扫码配对（手机扫电脑上的二维码）────────────────────────────────
+      const startQrPair = async () => {
+        setDialog('qr')
+        setQr({ status: 'loading', message: '正在生成二维码…' })
+        const result = await requestJson(`${API}/command`, { action: 'qrPairStart' })
+        if (result?.ok !== true) {
+          setQr({ status: 'failed', message: result?.error ?? '生成二维码失败' })
+          return
+        }
+        setQr({ token: result.token, status: result.status ?? 'waiting', message: result.message ?? '等待手机扫描二维码…', expiresAt: result.expiresAt })
+      }
+
+      const closeQrDialog = () => {
+        if (qr?.token !== undefined && ['waiting', 'pairing', 'connecting'].includes(qr.status)) {
+          void requestJson(`${API}/command`, { action: 'qrPairCancel', token: qr.token })
+        }
+        setQr(undefined)
+        setDialog('')
+      }
+
+      const qrPolling = dialog === 'qr' && qr?.token !== undefined && ['waiting', 'pairing', 'connecting'].includes(qr.status)
+      React.useEffect(() => {
+        if (qrPolling !== true) return undefined
+        let stopped = false
+        const timer = window.setInterval(async () => {
+          const status = await requestJson(`${API}/command`, { action: 'qrPairStatus', token: qr.token })
+          if (stopped || status?.ok !== true) return
+          setQr((previous) => (previous === undefined || previous.token !== status.token ? previous : { ...previous, status: status.status, message: status.message, endpoint: status.endpoint }))
+          if (['connected', 'paired', 'failed', 'timeout'].includes(status.status)) await refreshState()
+        }, 1200)
+        return () => {
+          stopped = true
+          window.clearInterval(timer)
+        }
+      }, [qrPolling, qr?.token])
+
+      const qrTone = qr?.status === 'connected' ? 'ok' : ['failed', 'timeout'].includes(qr?.status) ? 'error' : ''
+
+      const runPair = async () => {
+        if (wire.host.trim().length === 0) {
+          setPairOutput('请先填写设备 IP。')
+          return
+        }
+        setPairOutput('配对中…')
+        const result = await action('pair', { host: wire.host, port: Number(wire.pairPort), code: wire.code })
+        setPairOutput(result?.ok === true ? '配对成功。下一步用「IP 直连」连接（端口可能和配对端口不同）。' : `配对失败：${result?.error ?? '未知错误'}`)
+      }
+
+      const runConnect = async () => {
+        if (wire.host.trim().length === 0) {
+          setConnectOutput('请先填写设备 IP。')
+          return
+        }
+        setConnectOutput('连接中…')
+        const result = await action('connect', { host: wire.host, port: Number(wire.port) || 5555 })
+        setConnectOutput(result?.ok === true ? `已连接 ${result.target ?? ''}` : `连接失败：${result?.error ?? '未知错误'}`)
+      }
+
+      const runDisconnect = async () => {
+        if (wire.host.trim().length === 0) {
+          setConnectOutput('请先填写设备 IP。')
+          return
+        }
+        setConnectOutput('断开中…')
+        const result = await action('disconnect', { host: wire.host, port: Number(wire.port) || 5555 })
+        setConnectOutput(result?.ok === true ? `已断开 ${result.target ?? ''}` : `断开失败：${result?.error ?? '未知错误'}`)
+      }
+
       if (configForms === undefined) {
         return h('div', { style: S.page }, h('h2', { style: S.pageTitle }, '安卓调试'), h('p', { style: S.muted }, '配置服务未就绪，无法在这里改配置。'))
       }
@@ -2637,23 +2725,20 @@ window.__ModuleLoader__.load({
           'div',
           { style: S.section },
           h('h3', { style: { fontSize: 14, margin: '0 0 8px' } }, '无线调试'),
+          h('p', { style: S.muted }, wire.host.trim().length > 0 ? `当前无线设备：${wire.host}:${wire.port}` : '还没有配置无线设备。'),
           h(
             'div',
-            { style: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 } },
-            h('input', { style: S.input, value: wire.host, placeholder: '设备 IP，例如 192.168.1.23', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, host: event.target.value })); setField('wirelessHost', event.target.value) } }),
-            h('input', { style: S.input, value: wire.port, placeholder: '连接端口 5555', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, port: event.target.value })); setField('wirelessPort', Number(event.target.value) || 5555) } }),
-            h('input', { style: S.input, value: wire.pairPort, placeholder: '配对端口（Android 11+）', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, pairPort: event.target.value })); setField('pairingPort', Number(event.target.value) || 0) } }),
-            h('input', { style: S.input, value: wire.code, placeholder: '六位配对码', onChange: (event) => setWire((previous) => ({ ...previous, code: event.target.value })) }),
+            { style: { ...S.row, marginTop: 10 } },
+            h('button', { style: S.btnPrimary, onClick: () => void startQrPair() }, '扫码配对'),
+            h('button', { style: S.btn, onClick: () => { setPairOutput(''); setDialog('pair') } }, '配对码配对'),
+            h('button', { style: S.btn, onClick: () => { setConnectOutput(''); setDialog('connect') } }, 'IP 直连'),
           ),
           h(
             'div',
             { style: S.row },
-            h('button', { style: S.btn, onClick: () => void action('pair', { host: wire.host, port: Number(wire.pairPort), code: wire.code }) }, '配对'),
-            h('button', { style: S.btnPrimary, onClick: () => void action('connect', { host: wire.host, port: Number(wire.port) || 5555 }) }, '连接'),
-            h('button', { style: S.btn, onClick: () => void action('disconnect', { host: wire.host, port: Number(wire.port) || 5555 }) }, '断开'),
             h('button', { style: S.btn, onClick: () => void action('enableTcpip') }, 'USB 开启 TCP 模式'),
+            h('span', { style: S.muted }, 'Android 11+ 推荐「扫码配对」，一次搞定；之后日常用「IP 直连」。'),
           ),
-          h('p', { style: S.muted }, 'Android 11+：先在「无线调试」里点“使用配对码配对设备”，把 IP、配对端口和配对码填到这里点配对；成功后再用上面的连接端口点连接。'),
         ),
 
         h(
@@ -2743,12 +2828,120 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        dialog === 'qr'
+          ? h(
+              Modal,
+              { title: '扫码配对', onClose: closeQrDialog },
+              h('p', { style: S.muted }, '手机打开「开发者选项 → 无线调试 → 使用二维码配对设备」，扫描下面的二维码。手机和电脑要在同一个 Wi-Fi 下。'),
+              h(
+                'div',
+                { style: S.qrBox },
+                qr?.token
+                  ? h('img', { style: S.qrImg, alt: 'ADB 配对二维码', src: `${API}/pair/qr.png?token=${encodeURIComponent(qr.token)}&v=${qr.expiresAt ?? ''}` })
+                  : h('span', { style: S.muted }, qr?.status === 'loading' ? '正在生成二维码…' : '二维码未生成'),
+              ),
+              h('div', { style: S.statusLine(qrTone) }, qr?.message ?? ''),
+              qr?.endpoint ? h('p', { style: S.muted }, `已发现手机：${qr.endpoint}`) : null,
+              h(
+                'div',
+                { style: S.row },
+                h('button', { style: S.btn, onClick: () => void startQrPair() }, '重新生成'),
+                h('button', { style: S.btnPrimary, onClick: closeQrDialog }, qr?.status === 'connected' ? '完成' : '关闭'),
+              ),
+              h('p', { style: S.muted }, '二维码有效期 120 秒，一次性使用；配对码只在本次配对有效，不保存。'),
+            )
+          : null,
+        dialog === 'pair'
+          ? h(
+              Modal,
+              { title: '配对码配对', onClose: () => setDialog('') },
+              h('p', { style: S.muted }, '手机「无线调试 → 使用配对码配对设备」会给出 IP、配对端口和六位配对码。'),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '设备 IP')),
+                h('input', { style: S.input, value: wire.host, placeholder: '例如 192.168.1.23', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, host: event.target.value })); setField('wirelessHost', event.target.value) } }),
+              ),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '配对端口')),
+                h('input', { style: S.input, value: wire.pairPort, placeholder: '配对页面显示的端口', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, pairPort: event.target.value })); setField('pairingPort', Number(event.target.value) || 0) } }),
+              ),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '六位配对码')),
+                h('input', { style: S.input, value: wire.code, placeholder: '手机屏幕上的配对码', onChange: (event) => setWire((previous) => ({ ...previous, code: event.target.value })) }),
+              ),
+              pairOutput ? h('div', { style: S.statusLine(pairOutput.startsWith('配对成功') ? 'ok' : 'error') }, pairOutput) : null,
+              h(
+                'div',
+                { style: S.row },
+                h('button', { style: S.btnPrimary, onClick: () => void runPair() }, '配对'),
+                h('button', { style: S.btn, onClick: () => setDialog('') }, '关闭'),
+              ),
+            )
+          : null,
+        dialog === 'connect'
+          ? h(
+              Modal,
+              { title: 'IP 直连', onClose: () => setDialog('') },
+              h('p', { style: S.muted }, '填写手机「无线调试」页面显示的 IP 与连接端口（常见 5555）。'),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '设备 IP')),
+                h('input', { style: S.input, value: wire.host, placeholder: '例如 192.168.1.23', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, host: event.target.value })); setField('wirelessHost', event.target.value) } }),
+              ),
+              h(
+                'div',
+                { style: S.field },
+                h('label', { style: S.fieldLabel }, h('span', null, '连接端口')),
+                h('input', { style: S.input, value: wire.port, placeholder: '5555', onChange: (event) => { wireTouched.current = true; setWire((previous) => ({ ...previous, port: event.target.value })); setField('wirelessPort', Number(event.target.value) || 5555) } }),
+              ),
+              connectOutput ? h('div', { style: S.statusLine(connectOutput.startsWith('已连接') ? 'ok' : connectOutput.startsWith('已断开') ? 'ok' : 'error') }, connectOutput) : null,
+              h(
+                'div',
+                { style: S.row },
+                h('button', { style: S.btnPrimary, onClick: () => void runConnect() }, '连接'),
+                h('button', { style: S.btn, onClick: () => void runDisconnect() }, '断开'),
+                h('button', { style: S.btn, onClick: () => setDialog('') }, '关闭'),
+              ),
+              h('p', { style: S.muted }, '改了 IP / 端口后，记得点页面底部的「保存」，下次启动才能自动连接。'),
+            )
+          : null,
+
         h(
           'div',
           { style: { ...S.row, marginTop: 22, position: 'sticky', bottom: 0, background: 'var(--dsw-alias-bg-base, transparent)', padding: '10px 0' } },
           h('button', { style: dirty ? S.btnPrimary : { ...S.btnPrimary, ...S.btnDisabled }, disabled: !dirty, onClick: () => void save() }, '保存'),
           h('button', { style: S.btn, disabled: !dirty, onClick: () => setDraft({}) }, '撤销'),
           h('span', { style: S.muted }, status),
+        ),
+      )
+    }
+
+    function Modal(props) {
+      const close = typeof props?.onClose === 'function' ? props.onClose : () => {}
+      return h(
+        'div',
+        {
+          style: S.modalOverlay,
+          onClick: (event) => {
+            if (event.target === event.currentTarget) close()
+          },
+        },
+        h(
+          'div',
+          { style: S.modal, role: 'dialog', 'aria-modal': 'true' },
+          h(
+            'div',
+            { style: S.modalHead },
+            h('span', null, props?.title ?? ''),
+            h('button', { style: S.modalClose, 'aria-label': '关闭', onClick: close }, '✕'),
+          ),
+          h('div', { style: S.modalBody }, props?.children),
         ),
       )
     }

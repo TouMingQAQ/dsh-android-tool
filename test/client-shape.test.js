@@ -38,6 +38,14 @@ test('AAB→APK 客户端接了配置/检测/转换/任务路由', () => {
   }
 })
 
+test('无线调试改成按钮 + 弹窗，含扫码配对', () => {
+  for (const label of ['扫码配对', '配对码配对', 'IP 直连']) assert.match(source, new RegExp(label, 'u'))
+  assert.match(source, /qrPairStart/u)
+  assert.match(source, /qrPairStatus/u)
+  assert.match(source, /pair\/qr\.png/u)
+  assert.match(source, /modalOverlay/u)
+})
+
 test('鼠标点击按 letterbox 内区域反算，避免横向偏移', () => {
   assert.match(source, /const scale = Math\.min\(rect\.width \/ vw, rect\.height \/ vh\)/u)
   assert.match(source, /const offsetX = \(rect\.width - drawWidth\) \/ 2/u)

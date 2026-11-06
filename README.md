@@ -2,7 +2,7 @@
 
 把 Android 设备接进 DSH 工作台：
 
-- **设置 → 安卓调试**：配置 adb / scrcpy 路径、无线调试（配对 / 连接 / 断开）、当前调试设备与视频/日志偏好。
+- **设置 → 安卓调试**：配置 adb / scrcpy 路径；无线调试收成三个按钮——**扫码配对 / 配对码配对 / IP 直连**，各自弹窗单独操作，不再把一堆输入框挤在一页里。
 - **右侧 Sidebar → 安卓设备**：顶部五个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK；「界面」里还能展开一个可点击 / 拖动的虚拟手柄。
 - **手柄模式**：AI 可用 `android_control action=gamepad` 通过 scrcpy UHID 注入虚拟手柄（摇杆、扳机、方向键、ABXY），可选 **XBox / PlayStation / Nintendo Switch** 三种类型（VID/PID、名字与 NS 的 A/B/X/Y 换位都跟着变），面板会画出当前手柄输入；没有实时画面时自动回退到 adb 按键。
 - **AAB → APK**：把 `.aab` 转成已签名、可直接安装的 `.apk`（bundletool → zipalign → apksigner），复刻 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的完整流程。
@@ -50,7 +50,7 @@ fetch-retry-maxtimeout=120000
 
 ### 本地链接安装（开发用）
 
-1. 在本目录执行 `npm install`（安装 `@yume-chan/scrcpy` 依赖）；
+1. 在本目录执行 `npm install`（安装 `@yume-chan/scrcpy`、`qrcode` 等依赖）；
 2. 在 profile 的 `node_modules` 建 junction 指向本目录；
 3. profile 的 `package.json` `dependencies` 写 `"dsh-android-tool": "link:<本目录绝对路径>"`；
 4. `dsh.profile.bundles` 加入 `"dsh-android-tool"`；
@@ -143,6 +143,27 @@ fetch-retry-maxtimeout=120000
 | `logcatMaxLines` | 5000 | 服务端日志环形缓冲 |
 | `adbTimeoutMs` | 15000 | adb 默认超时 |
 | `scrcpyExtraArgs` | 空 | 独立 scrcpy 窗口的额外参数 |
+
+## 无线调试：三种连法
+
+设置页的「无线调试」只有三个按钮，点开各自弹窗：
+
+### 扫码配对（推荐，Android 11+）
+
+1. 手机和电脑连同一个 Wi-Fi，手机打开 **开发者选项 → 无线调试**；
+2. 在插件里点 **扫码配对**，会显示一个二维码（有效期 120 秒，一次性）；
+3. 手机上点 **使用二维码配对设备**，扫描电脑上的二维码；
+4. 插件自动完成 `adb pair` 并找到连接服务 `adb connect`，弹窗状态变成「已连接」。
+
+> 二维码里是随机生成的配对服务名与一次性配对码（`WIFI:T:ADB;S:...;P:...;;`），不写进配置、也不落盘。它是电脑显示、手机来扫，电脑不需要摄像头。底层用 `adb mdns services` 发现 `_adb-tls-pairing._tcp` 服务，需要手机与电脑在同一局域网且防火墙放行 adb。
+
+### 配对码配对
+
+手机「无线调试 → 使用配对码配对设备」给出 IP、配对端口和六位配对码，填进弹窗点 **配对**。连接端口（通常 5555）和配对端口可能不同，配对成功后用「IP 直连」连接。
+
+### IP 直连
+
+已经配对过、手机 `无线调试` 页面直接显示 `IP:端口` 时，填 IP + 端口点 **连接** / **断开** 即可。改完的 IP / 端口记得点页面底部「保存」，下次启动才能自动连接（`autoConnect`）。
 
 ## 限制
 
