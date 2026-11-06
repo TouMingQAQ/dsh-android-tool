@@ -27,6 +27,7 @@ test('手柄绘制与 WebSocket 手柄消息都在', () => {
   assert.match(source, /GamepadPad/u)
   assert.match(source, /type: 'gamepad'/u)
   assert.match(source, /gamepadReset/u)
+  assert.match(source, /gamepadDisconnect/u)
   assert.match(source, /gamepad\.svg/u)
   assert.match(source, /Nintendo Switch/u)
   assert.match(source, /gamepadType/u)

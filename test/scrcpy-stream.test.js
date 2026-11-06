@@ -108,6 +108,42 @@ test('setGamepad 先发 UHID_CREATE 再发 UHID_INPUT，并广播手柄状态', 
   assert.equal(stream.gamepad.created, false)
 })
 
+test('disconnectGamepad 主动销毁 UHID 并广播断连状态；无设备时也能安全调用', () => {
+  const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
+  const writes = []
+  stream.controlSocket = { destroyed: false, write(buffer) { writes.push(Buffer.from(buffer)) } }
+  const client = { texts: [], sendText(t) { this.texts.push(t) }, sendBinary() {} }
+  stream.clients.add(client)
+
+  // 还没设备时直接断连：不抛、disconnected=false
+  assert.equal(stream.disconnectGamepad().disconnected, false)
+
+  stream.setGamepad({ buttons: ['a'] }, { source: 'manual' })
+  assert.equal(stream.gamepad.created, true)
+
+  const result = stream.disconnectGamepad()
+  assert.equal(result.ok, true)
+  assert.equal(result.disconnected, true)
+  assert.equal(stream.gamepad.created, false)
+  assert.equal(writes[writes.length - 1][0], 14) // UHID_DESTROY
+
+  const last = JSON.parse(client.texts[client.texts.length - 1])
+  assert.equal(last.type, 'gamepad')
+  assert.equal(last.uhid, false)
+  assert.equal(last.via, 'idle')
+})
+
+test('WS gamepadDisconnect 消息会销毁 UHID 设备', () => {
+  const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
+  stream.controlSocket = { destroyed: false, write() {} }
+  stream.clients.add({ texts: [], sendText() {}, sendBinary() {} })
+
+  stream.setGamepad({ buttons: ['a'] }, { source: 'manual' })
+  assert.equal(stream.gamepad.created, true)
+  stream.handleControlMessage({ type: 'gamepadDisconnect' })
+  assert.equal(stream.gamepad.created, false)
+})
+
 test('setGamepadType 按新类型重建 UHID（PS 的 VID/PID）', () => {
   const stream = new ScrcpyStream({ adb: {}, getConfig: () => ({}), pluginRoot: '.' })
   const writes = []

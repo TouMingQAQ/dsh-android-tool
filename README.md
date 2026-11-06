@@ -75,7 +75,7 @@ fetch-retry-maxtimeout=120000
 - `VideoDecoder` 不可用或推流失败时自动回退到 **adb 截图轮询**（默认 3fps），功能不中断。
 - 画布点击 = tap；鼠标拖动时通过现有视频 WebSocket 实时发送 `touch down/move/up`（约 60Hz），不是松手后才补一个 swipe，所以拖动手感跟手；按钮可调音量 ±、返回、主页、亮屏。
 - 触控走 scrcpy **control socket**（`@yume-chan/scrcpy` 序列化），不是每次 `adb shell input`，实测一次控制往返约 20–30ms；流没开时才回退 adb。
-- **手柄**：工具栏点「手柄」会展开一个手柄，标题栏可切 **XBox / PlayStation / Nintendo Switch**（三种底图直接取自 [gamepadtester.cn](https://www.gamepadtester.cn/) 的控制器 SVG，设备端 VID/PID/名字也按类型重建）。鼠标 / 触摸直接点按钮、拖摇杆、按扳机，输入通过 control socket 的 UHID 通道注入设备；AI 用手柄时这里会同步高亮当前按键与摇杆位置。手柄需要实时推流（UHID），推流不可用时按钮退化为 adb `keyevent` 点按，摇杆/扳机不可用。
+- **手柄**：工具栏点「手柄」会展开一个手柄，标题栏可切 **XBox / PlayStation / Nintendo Switch**（三种底图直接取自 [gamepadtester.cn](https://www.gamepadtester.cn/) 的控制器 SVG，设备端 VID/PID/名字也按类型重建）。鼠标 / 触摸直接点按钮、拖摇杆、按扳机，输入通过 control socket 的 UHID 通道注入设备；AI 用手柄时这里会同步高亮当前按键与摇杆位置。标题栏还有「断连」按钮，点它会主动销毁 UHID 设备——手机侧看到手柄被拔出、实时画面不受影响，之后任意手柄输入会自动重连建好。手柄需要实时推流（UHID），推流不可用时按钮退化为 adb `keyevent` 点按，摇杆/扳机不可用。
 - 「打开 scrcpy 窗口」在设置了本机 `scrcpy.exe` 路径后启动独立窗口；精简包默认不带，按钮会自动隐藏。
 
 ### Logcat
@@ -120,7 +120,7 @@ fetch-retry-maxtimeout=120000
 |---|---|
 | `android_view` | 截图当前画面并以图片返回给模型，同时更新侧边栏画面；附带型号/当前包名/Activity/分辨率。 |
 | `android_state` | 查看设备参数：型号、Android 版本、电量、WiFi、内存、存储、屏幕、当前应用。 |
-| `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app / gamepad，默认操作后回一张截图（手柄默认不截图）。`gamepad` 用 scrcpy UHID 注入虚拟手柄：`buttons`（a/b/x/y/lb/rb/back/start/guide/lstick/rstick/up/down/left/right）、`lstick`/`rstick`（x/y 各 -1..1，y 向上为正）、`lt`/`rt`（0..1）、`gamepadType`（xbox/ps/switch）、`merge`、`holdMs`。 |
+| `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app / gamepad / gamepad_disconnect，默认操作后回一张截图（手柄默认不截图）。`gamepad` 用 scrcpy UHID 注入虚拟手柄：`buttons`（a/b/x/y/lb/rb/back/start/guide/lstick/rstick/up/down/left/right）、`lstick`/`rstick`（x/y 各 -1..1，y 向上为正）、`lt`/`rt`（0..1）、`gamepadType`（xbox/ps/switch）、`merge`、`holdMs`；`gamepad_disconnect` 主动断连虚拟手柄（画面继续，之后任意手柄输入自动重连）。 |
 | `android_adb` | 最后兜底：用配置的 adb 执行任意命令，返回 stdout/stderr/退出码。 |
 | `android_aab2apk` | 把 `.aab` 转成已签名 `.apk`，返回输出路径、大小、耗时、包名/版本与工具输出尾巴。 |
 

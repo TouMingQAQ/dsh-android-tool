@@ -826,7 +826,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 手柄：底图用 gamepadtester.cn 的 SVG 素材，上面盖一层透明的点击/高亮。 */
-    function GamepadPad({ state, disabled, source, via, type, onChange, onReset, onTypeChange }) {
+    function GamepadPad({ state, disabled, source, via, type, disconnected, onChange, onReset, onDisconnect, onTypeChange }) {
       const pad = state ?? emptyGamepad()
       const layout = gamepadFaceLayout(type)
       const cfg = GP_ASSET_LAYOUT[type] ?? GP_ASSET_LAYOUT.xbox
@@ -1019,7 +1019,7 @@ window.__ModuleLoader__.load({
         )
       }
 
-      const statusText = disabled ? '无设备' : via === 'uhid' ? 'UHID 已连接' : via === 'keyevent' ? 'adb 按键回退（无摇杆）' : via === 'idle' ? '等待输入' : '未连接实时画面'
+      const statusText = disabled ? '无设备' : via === 'uhid' ? 'UHID 已连接' : disconnected ? '已断连' : via === 'keyevent' ? 'adb 按键回退（无摇杆）' : via === 'idle' ? '等待输入' : '未连接实时画面'
 
       return h(
         'div',
@@ -1041,6 +1041,17 @@ window.__ModuleLoader__.load({
           ),
           h('span', { style: { flex: 1 } }),
           h('span', { style: { opacity: 0.62 } }, source === 'ai' ? 'AI 输入' : source === 'manual' ? '手动输入' : ''),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: via === 'uhid' ? S.btn : { ...S.btn, ...S.btnDisabled },
+              disabled: via !== 'uhid',
+              title: '断开虚拟手柄（手机侧会看到手柄被拔出，画面继续）',
+              onClick: () => onDisconnect?.(),
+            },
+            '断连',
+          ),
           h('button', { type: 'button', style: S.btn, onClick: () => onReset?.() }, '复位'),
         ),
         h(
@@ -1106,6 +1117,7 @@ window.__ModuleLoader__.load({
       const [gamepadSource, setGamepadSource] = React.useState('')
       const [gamepadVia, setGamepadVia] = React.useState('')
       const [gamepadType, setGamepadType] = React.useState('xbox')
+      const [gamepadDisconnected, setGamepadDisconnected] = React.useState(false)
 
       const setModeBoth = (next) => {
         modeRef.current = next
@@ -1255,6 +1267,7 @@ window.__ModuleLoader__.load({
                 gamepadRef.current = next
                 setGamepadState(next)
                 setGamepadVia(String(message.via ?? ''))
+                if (message.via === 'uhid') setGamepadDisconnected(false)
                 if (typeof message.gamepadType === 'string') setGamepadType(message.gamepadType)
                 if (message.source === 'ai') {
                   setGamepadSource('ai')
@@ -1368,6 +1381,7 @@ window.__ModuleLoader__.load({
         if (info.source === 'ai' || info.source === 'manual') setGamepadSource(info.source)
         if (info.source === 'ai') setShowGamepad(true)
         if (typeof info.type === 'string') setGamepadType(info.type)
+        if (info.uhid === true) setGamepadDisconnected(false)
         setGamepadVia(info.uhid === true ? 'uhid' : info.controlReady === true ? 'idle' : 'none')
       }, [state?.gamepad?.updatedAt])
 
@@ -1407,6 +1421,7 @@ window.__ModuleLoader__.load({
         gamepadRef.current = next
         setGamepadState(next)
         setGamepadSource('manual')
+        setGamepadDisconnected(false)
         sendGamepad(next, opts)
       }
 
@@ -1434,6 +1449,7 @@ window.__ModuleLoader__.load({
         gamepadRef.current = next
         setGamepadState(next)
         setGamepadSource('manual')
+        setGamepadDisconnected(false)
         const ws = wsRef.current
         if (ws !== undefined && ws.readyState === 1) {
           try {
@@ -1444,6 +1460,26 @@ window.__ModuleLoader__.load({
           }
         }
         void post('gamepadType', { gamepadType: nextType })
+      }
+
+      /** 主动断连手柄：销毁 UHID 设备，手机侧看到手柄被拔出；画面继续。 */
+      const disconnectGamepad = () => {
+        const next = emptyGamepad()
+        gamepadRef.current = next
+        setGamepadState(next)
+        setGamepadSource('')
+        setGamepadDisconnected(true)
+        setGamepadVia('idle')
+        const ws = wsRef.current
+        if (ws !== undefined && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'gamepadDisconnect' }))
+            return
+          } catch {
+            // 忽略，退回 HTTP
+          }
+        }
+        void post('gamepadDisconnect', {})
       }
 
       const canvasPoint = (event) => {
@@ -1582,8 +1618,10 @@ window.__ModuleLoader__.load({
               source: gamepadSource,
               via: gamepadVia,
               type: gamepadType,
+              disconnected: gamepadDisconnected,
               onChange: commitGamepad,
               onReset: resetGamepad,
+              onDisconnect: disconnectGamepad,
               onTypeChange: changeGamepadType,
             })
           : null,

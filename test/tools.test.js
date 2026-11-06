@@ -109,6 +109,14 @@ test('android_control 手柄：透传按钮/摇杆且默认不截图', async () 
   assert.equal(input.capture, false)
 })
 
+test('android_control 支持 gamepad_disconnect 主动断连', async () => {
+  const service = fakeService()
+  const tool = buildTools({ service }).find((item) => item.name === 'android_control')
+  assert.ok(tool.parameters.properties.action.enum.includes('gamepad_disconnect'))
+  await tool.execute({ action: 'gamepad_disconnect' })
+  assert.equal(service.calls[0].input.action, 'gamepad_disconnect')
+})
+
 test('cleanValue 递归去掉 undefined 并把非有限数字变成 null', () => {
   assert.deepEqual(cleanValue({ a: 1, b: undefined, c: { d: undefined, e: 2 }, f: [1, undefined, 3], g: Number.NaN }), {
     a: 1,
