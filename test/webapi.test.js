@@ -132,6 +132,40 @@ test('gamepad.svg 按 type 返回对应素材', async () => {
   assert.equal(missing.statusCode, 200) // unknown 回退到 xbox
 })
 
+test('apk 信息 / 浏览 / 安装路由', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'apk-web-'))
+  try {
+    const calls = []
+    const server = fakeServer()
+    registerWebRoutes(server, {
+      service: {
+        apkBaseDir: () => root,
+        apkInfo: async (input) => ({ ok: true, path: input.path }),
+        installApk: async (input) => {
+          calls.push(input)
+          return { ok: true, apkPath: input.apkPath }
+        },
+      },
+    })
+    const handler = server.calls.http[0].handler
+
+    const info = fakeResponse()
+    await handler(fakeRequest('GET', `${WEB_ROUTES.apkInfo}?path=${encodeURIComponent('x.apk')}`), info)
+    assert.deepEqual(JSON.parse(info.body), { ok: true, path: 'x.apk' })
+
+    const browse = fakeResponse()
+    await handler(fakeRequest('GET', `${WEB_ROUTES.apkBrowse}?path=${encodeURIComponent(root)}`), browse)
+    assert.equal(JSON.parse(browse.body).ok, true)
+
+    const install = fakeResponse()
+    await handler(fakeRequest('POST', WEB_ROUTES.apkInstall, [JSON.stringify({ apkPath: 'x.apk', reinstall: true })]), install)
+    assert.equal(JSON.parse(install.body).ok, true)
+    assert.deepEqual(calls[0], { apkPath: 'x.apk', reinstall: true })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('aab2apk config / 保存 / 浏览 / 任务路由', async () => {
   const root = await mkdtemp(join(tmpdir(), 'aab2apk-web-'))
   try {

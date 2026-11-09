@@ -3,7 +3,7 @@
  *
  * 这一层做四件事：
  *   1. 构造 AndroidService（adb / logcat / 性能 / scrcpy 推流与独立窗口 / AAB→APK）；
- *   2. 注册 android_view / android_state / android_control / android_adb / android_aab2apk 五个工具；
+ *   2. 注册 android_view / android_state / android_control / android_adb / android_install_apk / android_aab2apk 六个工具；
  *   3. 注册 /x-android-tool 的 HTTP 与 WebSocket 接口（侧边栏与设置页用）；
  *   4. 卸载时关掉本插件启动的进程。
  *

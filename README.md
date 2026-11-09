@@ -3,10 +3,11 @@
 把 Android 设备接进 DSH 工作台：
 
 - **设置 → 安卓调试**：配置 adb / scrcpy 路径；无线调试收成三个按钮——**扫码配对 / 配对码配对 / IP 直连**，各自弹窗单独操作，不再把一堆输入框挤在一页里。
-- **右侧 Sidebar → 安卓设备**：顶部五个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK；「界面」里还能展开一个可点击 / 拖动的虚拟手柄，支持本机电脑手柄转接和截图复制到输入框。
+- **右侧 Sidebar → 安卓设备**：顶部六个 Tab —— 界面 / Logcat / 性能 / 指令 / AAB→APK / 安装 APK；「界面」里还能展开一个可点击 / 拖动的虚拟手柄，支持本机电脑手柄转接和截图复制到输入框。
 - **手柄模式**：AI 可用 `android_control action=gamepad` 通过 scrcpy UHID 注入虚拟手柄（摇杆、扳机、方向键、ABXY），可选 **XBox / PlayStation / Nintendo Switch** 三种类型（VID/PID、名字与 NS 的 A/B/X/Y 换位都跟着变），面板会画出当前手柄输入；没有实时画面时自动回退到 adb 按键。
 - **AAB → APK**：把 `.aab` 转成已签名、可直接安装的 `.apk`（bundletool → zipalign → apksigner），复刻 [AAB2APK](https://github.com/TouMingQAQ/AAB2APK) 的完整流程。
-- **给 AI 的五个工具**：`android_view`、`android_state`、`android_control`、`android_adb`、`android_aab2apk`。
+- **安装 APK**：选一个本机 `.apk`，用 `adb install` 直接装到当前设备，支持覆盖安装 / 允许降级 / 授予权限。
+- **给 AI 的六个工具**：`android_view`、`android_state`、`android_control`、`android_adb`、`android_install_apk`、`android_aab2apk`。
 
 插件随包一份 `scrcpy/` 目录的精简版：只保留 `adb.exe`、`AdbWinApi.dll`、`AdbWinUsbApi.dll`、`scrcpy-server`（约 9MB），不依赖本机另外安装 adb；独立 scrcpy 窗口需要你在设置里另外指定本机 `scrcpy.exe`。
 
@@ -28,7 +29,7 @@ https://github.com/TouMingQAQ/dsh-android-tool
 dsh plugin install github:TouMingQAQ/dsh-android-tool
 ```
 
-装完 `dsh.profile.bundles` 会出现 `dsh-android-tool`，右侧多出「安卓设备」面板，AI 侧多出四个 `android_*` 工具。
+装完 `dsh.profile.bundles` 会出现 `dsh-android-tool`，右侧多出「安卓设备」面板，AI 侧多出六个 `android_*` 工具。
 
 ### 卡在 codeload.github.com 超时怎么办
 
@@ -114,6 +115,14 @@ fetch-retry-maxtimeout=120000
 - **进度与折叠**：转换时显示百分比进度条和七步流程清单（检查配置 → build-apks → 解包 → 对齐 → 签名 → 校验 → 完成）；各参数卡片可折叠，不占地方。
 - 需要 **Java** 和 **Android SDK Build-Tools**（apksigner / zipalign）；`bundletool-all.jar` 已随包放在 `tools/`，也可以用界面覆盖成别的版本。缺哪个会在检测结果里直接写出来。
 
+### 安装 APK
+
+选一个本机 `.apk` 直接装到当前设备（`adb install`）：
+
+- **选文件**：粘贴完整路径，或点「浏览」在内置文件浏览器里选（DSH 会拦截拖进来的文件，界面拿不到拖拽，所以没有拖放）。路径输入后会显示文件大小、包名、版本（能读出清单时）。
+- **安装选项**：覆盖安装（`-r`，默认开）、允许降级（`-d`）、授予权限（`-g`）。
+- **结果**：成功显示大小与耗时；失败显示 adb 的 `Failure [INSTALL_FAILED_...]` 错误码和原始输出。安装后不会自动启动应用。
+
 ## AI 工具
 
 | 工具 | 作用 |
@@ -122,6 +131,7 @@ fetch-retry-maxtimeout=120000
 | `android_state` | 查看设备参数：型号、Android 版本、电量、WiFi、内存、存储、屏幕、当前应用。 |
 | `android_control` | 模拟触屏与按键：tap / long_press / swipe / key / text / scroll / wake / open_app / gamepad / gamepad_disconnect，默认操作后回一张截图（手柄默认不截图）。`gamepad` 用 scrcpy UHID 注入虚拟手柄：`buttons`（a/b/x/y/lb/rb/back/start/guide/lstick/rstick/up/down/left/right）、`lstick`/`rstick`（x/y 各 -1..1，y 向上为正）、`lt`/`rt`（0..1）、`gamepadType`（xbox/ps/switch）、`merge`、`holdMs`；`gamepad_disconnect` 主动断连虚拟手柄（画面继续，之后任意手柄输入自动重连）。 |
 | `android_adb` | 最后兜底：用配置的 adb 执行任意命令，返回 stdout/stderr/退出码。 |
+| `android_install_apk` | 把本机 `.apk` 装到当前设备（`adb install`），默认覆盖安装；可选降级、授予权限；返回安装结果、大小和 adb 输出。 |
 | `android_aab2apk` | 把 `.aab` 转成已签名 `.apk`，返回输出路径、大小、耗时、包名/版本与工具输出尾巴。 |
 
 ## 配置项

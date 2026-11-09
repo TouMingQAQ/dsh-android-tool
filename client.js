@@ -1,4 +1,4 @@
-// dsh-android-tool 的浏览器半边：右侧「安卓设备」五 Tab + 设置里的「安卓调试」。
+// dsh-android-tool 的浏览器半边：右侧「安卓设备」六 Tab + 设置里的「安卓调试」。
 //
 // 约束与其它 dsh-yisu 子插件一致：
 //   1. 自注册脚本：window.__ModuleLoader__.load({ id, factory })，不 import；
@@ -31,9 +31,10 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 给 aab2apk 的请求带上 session，让宿主能定位目标工作区。 */
+    /** 给 aab2apk / apk 的请求带上 session，让宿主能定位目标工作区。 */
     function withSession(url) {
-      if (!String(url).includes('/aab2apk/')) return url
+      const text = String(url)
+      if (!text.includes('/aab2apk/') && !text.includes('/apk/')) return url
       const id = currentSessionId()
       if (id.length === 0) return url
       return `${url}${url.includes('?') ? '&' : '?'}session=${encodeURIComponent(id)}`
@@ -659,6 +660,7 @@ window.__ModuleLoader__.load({
         { id: 'perf', label: '性能' },
         { id: 'command', label: '指令' },
         { id: 'aab2apk', label: 'AAB→APK' },
+        { id: 'installapk', label: '安装 APK' },
       ]
 
       let content
@@ -666,6 +668,7 @@ window.__ModuleLoader__.load({
       else if (tab === 'logcat') content = h(LogcatTab, { state, refresh })
       else if (tab === 'perf') content = h(PerfTab, { state, refresh })
       else if (tab === 'aab2apk') content = h(Aab2ApkTab)
+      else if (tab === 'installapk') content = h(InstallApkTab)
       else content = h(CommandTab, { state, refresh })
 
       const devices = Array.isArray(state?.devices) ? state.devices : []
@@ -2627,6 +2630,184 @@ window.__ModuleLoader__.load({
                           } else {
                             setField(picker.field, entry.path)
                             setPicker(undefined)
+                          }
+                        },
+                      },
+                      h('span', null, entry.dir ? '📁' : '📄'),
+                      h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, entry.name),
+                      entry.dir ? null : h('span', { style: S.muted }, entry.size >= 1024 * 1024 ? `${(entry.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(entry.size / 1024))} KB`),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      )
+    }
+
+    // ── Tab6 安装 APK ───────────────────────────────────────────────────────
+    function InstallApkTab() {
+      const [apkPath, setApkPath] = React.useState('')
+      const [info, setInfo] = React.useState(undefined)
+      const [status, setStatus] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+      const [result, setResult] = React.useState(undefined)
+      const [picker, setPicker] = React.useState(undefined)
+      const [options, setOptions] = React.useState({ reinstall: true, downgrade: false, grantPermissions: false })
+
+      const loadInfo = async (path) => {
+        const target = String(path ?? '').trim()
+        if (target.length === 0) {
+          setInfo(undefined)
+          return
+        }
+        const response = await requestJson(`${API}/apk/info?path=${encodeURIComponent(target)}`)
+        if (response?.ok === true) setInfo(response)
+        else {
+          setInfo(undefined)
+          if (response?.error) setStatus(response.error)
+        }
+      }
+
+      React.useEffect(() => {
+        if (apkPath.trim().length === 0) {
+          setInfo(undefined)
+          return undefined
+        }
+        const timer = window.setTimeout(() => void loadInfo(apkPath), 400)
+        return () => window.clearTimeout(timer)
+      }, [apkPath])
+
+      const browse = async (start) => {
+        let dir = String(start ?? '').trim()
+        if (dir.length > 0) {
+          const cut = Math.max(dir.lastIndexOf('\\'), dir.lastIndexOf('/'))
+          if (cut > 0) dir = dir.slice(0, cut)
+        }
+        const response = await requestJson(`${API}/apk/browse?path=${encodeURIComponent(dir)}`)
+        if (response?.ok === true) setPicker(response)
+        else setStatus(response?.error ?? '无法浏览目录')
+      }
+
+      const navigate = async (dir) => {
+        const response = await requestJson(`${API}/apk/browse?path=${encodeURIComponent(dir)}`)
+        if (response?.ok === true) setPicker(response)
+        else setStatus(response?.error ?? '无法浏览目录')
+      }
+
+      const install = async () => {
+        if (busy) return
+        const target = apkPath.trim()
+        if (target.length === 0) {
+          setStatus('请先选择或填写 APK 路径')
+          return
+        }
+        setBusy(true)
+        setResult(undefined)
+        setStatus('正在安装…大文件可能要一会儿')
+        const response = await requestJson(`${API}/apk/install`, { apkPath: target, ...options })
+        setBusy(false)
+        setResult(response)
+        if (response?.ok === true) {
+          setStatus(`安装成功${response.sizeHuman ? ` · ${response.sizeHuman}` : ''}${response.elapsedMs ? ` · ${response.elapsedMs}ms` : ''}`)
+        } else {
+          setStatus(`安装失败：${response?.error ?? '未知错误'}`)
+        }
+      }
+
+      const option = (key, label) =>
+        h(
+          'label',
+          { style: S.aabCheck, key },
+          h('input', { type: 'checkbox', checked: options[key] === true, onChange: (event) => setOptions((previous) => ({ ...previous, [key]: event.target.checked })) }),
+          h('span', null, label),
+        )
+
+      const infoLine =
+        info === undefined
+          ? ''
+          : [info.sizeHuman, info.packageName ? `包名 ${info.packageName}` : '', info.versionName ? `版本 ${info.versionName}` : ''].filter(Boolean).join(' · ')
+
+      return h(
+        'div',
+        { style: { ...S.aabWrap, position: 'relative' } },
+        h(
+          'div',
+          { style: S.aabScroll },
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, 'APK 文件'),
+            h(
+              'div',
+              { style: S.aabPathRow },
+              h('input', {
+                style: { ...S.input, flex: 1, minWidth: 0 },
+                type: 'text',
+                value: apkPath,
+                placeholder: '粘贴 .apk 的完整路径，或点「浏览」选择',
+                spellCheck: false,
+                onChange: (event) => {
+                  setApkPath(event.target.value)
+                  setStatus('')
+                },
+              }),
+              h('button', { style: S.btn, onClick: () => void browse(apkPath) }, '浏览'),
+            ),
+            infoLine ? h('div', { style: S.muted }, infoLine) : null,
+            h('div', { style: { ...S.muted, marginTop: 6 } }, '界面拿不到拖进来的文件（被 DSH 拦截），请粘贴路径或点「浏览」选择。'),
+          ),
+          h(
+            'div',
+            { style: S.aabSection },
+            h('div', { style: S.aabTitle }, '安装选项'),
+            h(
+              'div',
+              { style: { ...S.row, marginTop: 0 } },
+              option('reinstall', '覆盖安装（-r）'),
+              option('downgrade', '允许降级（-d）'),
+              option('grantPermissions', '授予权限（-g）'),
+            ),
+          ),
+          h(
+            'div',
+            { style: S.row },
+            h('button', { style: S.btnPrimary, disabled: busy, onClick: () => void install() }, busy ? '安装中…' : '开始安装'),
+            h('span', { style: S.muted }, status),
+          ),
+          result === undefined ? null : h('pre', { style: S.aabLog }, JSON.stringify(result, null, 2)),
+        ),
+        picker === undefined
+          ? null
+          : h(
+              'div',
+              { style: S.aabOverlay },
+              h(
+                'div',
+                { style: S.aabDialog },
+                h(
+                  'div',
+                  { style: S.aabDialogHead },
+                  h('button', { style: S.btn, onClick: () => void navigate(picker.dir) }, '刷新'),
+                  h('span', { style: { ...S.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, picker.dir),
+                  h('button', { style: S.btn, onClick: () => setPicker(undefined) }, '关闭'),
+                ),
+                h(
+                  'div',
+                  { style: S.aabDialogList },
+                  picker.parent ? h('button', { style: S.aabDialogRow, onClick: () => void navigate(picker.parent) }, '..') : null,
+                  (picker.entries ?? []).map((entry) =>
+                    h(
+                      'button',
+                      {
+                        key: entry.path,
+                        style: S.aabDialogRow,
+                        onClick: () => {
+                          if (entry.dir) {
+                            void navigate(entry.path)
+                          } else {
+                            setApkPath(entry.path)
+                            setPicker(undefined)
+                            setStatus('')
                           }
                         },
                       },
